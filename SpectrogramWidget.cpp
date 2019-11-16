@@ -14,6 +14,8 @@
 
 #include "OpenGLHelpers.h"
 
+#include "BinaryResources.h"
+
 SpectogramWidget::SpectogramWidget(Spectrogram &spectrogram) : 
 	spectrogram_(spectrogram)
 {
@@ -35,13 +37,13 @@ void SpectogramWidget::newOpenGLContextCreated()
 	}
 
 #ifdef JUCE_DEBUG
-	// Debug version loads the shader files relative to the project directory
-	String vertexShader = loadShader("../Module/oscilloscope.vert.glsl"); 
-	String fragmentShader = loadShader("../Module/oscilloscope.frag.glsl");
+	// Debug version loads the shader files relative to the project directory. This is not robust, I should rather copy the shader file next to the executable in Debug mode.
+	String vertexShader = loadShader("../../Module/shaders/oscilloscope.vert.glsl"); 
+	String fragmentShader = loadShader("../../Module/shaders/oscilloscope.frag.glsl");
 #else
 	// Release version uses the binary data resources compiled into the software
-	std::string vertexShader(BinaryData::oscilloscope_vert_glsl, BinaryData::oscilloscope_vert_glslSize);
-	std::string fragmentShader(BinaryData::oscilloscope_frag_glsl, BinaryData::oscilloscope_frag_glslSize);
+	std::string vertexShader((const char *) oscilloscope_vert_glsl, oscilloscope_vert_glsl_size);
+	std::string fragmentShader((const char *) oscilloscope_frag_glsl, oscilloscope_frag_glsl_size);
 #endif
 
 #ifdef WIN32
@@ -53,6 +55,7 @@ void SpectogramWidget::newOpenGLContextCreated()
 #endif
 	bool worked = context_.setSwapInterval(1);
 	jassert(worked);
+	ignoreUnused(worked);
 
 	shader_ = std::make_unique<OpenGLShaderProgram>(context_);
 

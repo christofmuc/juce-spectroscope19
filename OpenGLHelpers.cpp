@@ -79,6 +79,7 @@ bool checkPeerIsValid(OpenGLContext* context)
 
 void checkGLError(const char* file, const int line)
 {
+	ignoreUnused(file, line); // Release build will otherwise issue warning
 	for (;;)
 	{
 		const GLenum e = glGetError();

@@ -19,6 +19,13 @@ find_package(JUCE REQUIRED
 		juce_dsp
 )
 
+# Load the macro to process binary resources
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
+include(BinaryResources)
+
+# Create our binary resources - the shaders
+create_resources(shaders BinaryResources.h)
+
 # Define the sources for the static library
 set(Sources
 	Fifo.h
@@ -32,8 +39,8 @@ set(Sources
 	Spectrogram.h
 	SpectrogramWidget.cpp
 	SpectrogramWidget.h
-	oscilloscope.frag.glsl
-	oscilloscope.vert.glsl
+	shaders/oscilloscope.frag.glsl
+	shaders/oscilloscope.vert.glsl
 )
 
 # Setup library
