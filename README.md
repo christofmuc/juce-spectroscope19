@@ -8,7 +8,7 @@ This repository is meant to be included as a git submodule in a main project, se
 
 ## Example
 
-In order to build this library standalone and get a working example program, , there is a [separate little repository called juce-spectroscope19-ci](https://github.com/christofmuc/juce-spectroscope19-ci) that you can use. This also documents the build process.
+In order to build this library standalone and get a working example program, there is a [separate little repository called juce-spectroscope19-ci](https://github.com/christofmuc/juce-spectroscope19-ci) that you can use. This also documents the build process.
 
 Here is a screenshot of the program in the example repo action rendering a youtube video of a performance of [Pergolesi's Stabat mater](https://www.youtube.com/watch?v=FjJ02agjjdo):
 
