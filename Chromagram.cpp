@@ -17,7 +17,7 @@
 
 class Chromagram::Impl {
 public:
-	Chromagram::Impl(double fs, size_t blocksize) : params_(12, 20.0 / fs, 440.0 / fs), analyzer_(params_), coefs_(analyzer_), blocksize_(blocksize) {
+	Chromagram::Impl(double fs, size_t blocksize) : params_(48, 20.0 / fs, 440.0 / fs), analyzer_(params_), coefs_(analyzer_), blocksize_(blocksize) {
 		size_t analysis_support = (size_t) ceil(analyzer_.analysis_support());
 		size_t synthesis_support = (size_t) ceil(analyzer_.synthesis_support());
 		ignoreUnused(analysis_support, synthesis_support);

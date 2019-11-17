@@ -16,6 +16,9 @@
 
 #include "BinaryResources.h"
 
+//const int numBins = 247; // How do I change that dynamically?
+const int numBins = 492; // How do I change that dynamically?
+
 ChromagramWidget::ChromagramWidget(Chromagram &chromagram) :
 	chromagram_(chromagram)
 {
@@ -24,7 +27,7 @@ ChromagramWidget::ChromagramWidget(Chromagram &chromagram) :
 	statusLabel_.setJustificationType(Justification::topLeft);
 	statusLabel_.setFont(Font(14.0f));
 
-	fftData_.resize(124 * 512);
+	fftData_.resize(numBins * 512);
 }
 
 void ChromagramWidget::newOpenGLContextCreated()
@@ -75,8 +78,8 @@ void ChromagramWidget::newOpenGLContextCreated()
 		logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
 
 		textureLUT_ = createColorLookupTexture();
-		spectrumData_ = createDataTexture(124, 1);
-		spectrumHistory_ = createDataTexture(124, 512);
+		spectrumData_ = createDataTexture(numBins, 1);
+		spectrumHistory_ = createDataTexture(numBins, 512);
 		JUCE_CHECK_OPENGL_ERROR
 
 		statusText = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
