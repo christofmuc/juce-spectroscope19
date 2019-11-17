@@ -9,7 +9,7 @@
 // Define is for Visual Studio
 #define _USE_MATH_DEFINES
 #pragma warning(push)
-#pragma warning(disable: 4244 4146 4099 4100)
+#pragma warning(disable: 4244 4146 4099 4100 4189)
 // Trying the AGPL library Gaborator from gaborator.com
 #include "gaborator/gaborator.h"
 #include "gaborator/render.h"

@@ -21,13 +21,26 @@ find_package(JUCE REQUIRED
 
 # Load the macro to process binary resources
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
-include(BinaryResources)
+
+set(SHADER_FILES
+	shaders/oscilloscope.frag.glsl
+	shaders/oscilloscope.vert.glsl
+	shaders/spectrogram.frag.glsl
+	shaders/spectrogram.vert.glsl	
+)
 
 # Create our binary resources - the shaders
-create_resources(shaders BinaryResources.h)
+add_custom_command(
+		OUTPUT BinaryResources.h 
+		COMMAND ${CMAKE_COMMAND} -P createResources.cmake 
+		DEPENDS ${SHADER_FILES}
+		COMMENT "Compiling binary resources"
+		WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+		)
 
 # Define the sources for the static library
 set(Sources
+	BinaryResources.h 
 	Chromagram.cpp
 	Chromagram.h
 	ChromagramWidget.cpp
@@ -43,10 +56,7 @@ set(Sources
 	Spectrogram.h
 	SpectrogramWidget.cpp
 	SpectrogramWidget.h
-	shaders/oscilloscope.frag.glsl
-	shaders/oscilloscope.vert.glsl
-	shaders/spectrogram.frag.glsl
-	shaders/spectrogram.vert.glsl
+	${SHADER_FILES}
 )
 
 # Setup library
@@ -62,3 +72,6 @@ else()
     # lots of warnings and all warnings as errors
     target_compile_options(juce-spectroscope19 PRIVATE -Wall -Wextra -pedantic -Werror)
 endif()
+
+
+
