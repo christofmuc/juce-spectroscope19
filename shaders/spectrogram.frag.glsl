@@ -23,7 +23,7 @@ void main()
     float y = gl_FragCoord.y / resolution.y;
 
 	float x;
-	x = linearXAxis(gl_FragCoord.x);
+	x = 1 - linearXAxis(gl_FragCoord.x);
 
 	float amplitude = texture(audioSampleData, vec2(x, 0.0)).r;
 	if (y > upperHalfPercentage) {
