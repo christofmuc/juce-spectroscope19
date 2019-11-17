@@ -7,17 +7,12 @@
 #version 330 core 
 
 uniform vec2  resolution;
-uniform int xAxisLog;
 
 uniform float waterfallPosition;
 uniform float upperHalfPercentage;
 uniform sampler2D audioSampleData;
 uniform sampler2D lutTexture; 
 uniform sampler2D waterfall; 
-
-float logXAxis(float x) {
-	return 1.0f - exp(log(1.0f - x / resolution.x) * 0.2f);
-}
 
 float linearXAxis(float x) {
 	return x / resolution.x;
@@ -28,11 +23,7 @@ void main()
     float y = gl_FragCoord.y / resolution.y;
 
 	float x;
-	if (xAxisLog == 1) {
-		x = logXAxis(gl_FragCoord.x);
-	} else {
-	    x = linearXAxis(gl_FragCoord.x);
-	}
+	x = linearXAxis(gl_FragCoord.x);
 
 	float amplitude = texture(audioSampleData, vec2(x, 0.0)).r;
 	if (y > upperHalfPercentage) {
