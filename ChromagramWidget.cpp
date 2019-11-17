@@ -170,7 +170,6 @@ void ChromagramWidget::renderOpenGL()
 	JUCE_CHECK_OPENGL_ERROR
 
 	setUniform(lutTexture_, 0);
-	setUniform(logXAxis_, xLogAxis_);
 	setUniform(waterfallUniform_, waterfallPosition/512.0f);
 	setUniform(uUpperHalfPercentage_, upperHalfPercentage_);
 	setUniform(audioSampleData_, 1);
