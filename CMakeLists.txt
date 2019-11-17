@@ -61,7 +61,7 @@ set(Sources
 
 # Setup library
 add_library(juce-spectroscope19 ${Sources})
-target_include_directories(juce-spectroscope19 INTERFACE ${CMAKE_CURRENT_LIST_DIR} PUBLIC ${GLEW_DIRECTORY} "${asiosdk_SOURCE_DIR}/common" "${CMAKE_CURRENT_LIST_DIR}/../third_party/gaborator-1.3")
+target_include_directories(juce-spectroscope19 INTERFACE ${CMAKE_CURRENT_LIST_DIR} PUBLIC ${GLEW_DIRECTORY} "${asiosdk_SOURCE_DIR}/common" ${GABORATOR_DIRECTORY})
 target_link_libraries(juce-spectroscope19 PRIVATE ${JUCE_LIBRARIES})
 
 # Pedantic about warnings
