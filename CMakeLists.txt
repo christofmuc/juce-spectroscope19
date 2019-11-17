@@ -28,6 +28,10 @@ create_resources(shaders BinaryResources.h)
 
 # Define the sources for the static library
 set(Sources
+	Chromagram.cpp
+	Chromagram.h
+	ChromagramWidget.cpp
+	ChromagramWidget.h
 	Fifo.h
 	OpenGLFloatTexture.cpp
 	OpenGLFloatTexture.h
@@ -45,7 +49,7 @@ set(Sources
 
 # Setup library
 add_library(juce-spectroscope19 ${Sources})
-target_include_directories(juce-spectroscope19 INTERFACE ${CMAKE_CURRENT_LIST_DIR} PUBLIC ${GLEW_DIRECTORY} "${asiosdk_SOURCE_DIR}/common")
+target_include_directories(juce-spectroscope19 INTERFACE ${CMAKE_CURRENT_LIST_DIR} PUBLIC ${GLEW_DIRECTORY} "${asiosdk_SOURCE_DIR}/common" "${CMAKE_CURRENT_LIST_DIR}/../third_party/gaborator-1.3")
 target_link_libraries(juce-spectroscope19 PRIVATE ${JUCE_LIBRARIES})
 
 # Pedantic about warnings
