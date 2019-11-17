@@ -24,6 +24,10 @@ public:
 	}
 
 	void runAnalyze(AudioBuffer<float> &buffer, size_t blocksize, std::vector<float> &amplitudes, int &outX, int &outY) {
+		// Streaming mode requires us to discard old history
+		//gaborator::forget_before(analyzer_, coefs_, 1024);
+		coefs_ = gaborator::coefs<float>(analyzer_);
+
 		analyzer_.analyze(buffer.getReadPointer(0), 0, blocksize, coefs_);
 
 		gaborator::sample_index_t firstSample, lastSample;
