@@ -18,8 +18,13 @@ public:
 	void getData(float *out);
 	void newData(const AudioSourceChannelInfo& data);
 
+	int height() const;
+
 private:
+	std::function<void()> updateCallback_;
 	AudioBufferFiFo<float> fifo_;
+	std::vector<float> data_;
+	int height_;
 	size_t blocksize_;
 	CriticalSection lock;
 

@@ -24,7 +24,7 @@ ChromagramWidget::ChromagramWidget(Chromagram &chromagram) :
 	statusLabel_.setJustificationType(Justification::topLeft);
 	statusLabel_.setFont(Font(14.0f));
 
-	//fftData_.resize(spectrogram_.fftSize() / 2 * 512); // History of the last 512 FFTs
+	fftData_.resize(124 * 512);
 }
 
 void ChromagramWidget::newOpenGLContextCreated()
@@ -38,12 +38,12 @@ void ChromagramWidget::newOpenGLContextCreated()
 
 #ifdef JUCE_DEBUG
 	// Debug version loads the shader files relative to the project directory. This is not robust, I should rather copy the shader file next to the executable in Debug mode.
-	String vertexShader = loadShader("../../Module/shaders/oscilloscope.vert.glsl"); 
-	String fragmentShader = loadShader("../../Module/shaders/oscilloscope.frag.glsl");
+	String vertexShader = loadShader("../../Module/shaders/spectrogram.vert.glsl"); 
+	String fragmentShader = loadShader("../../Module/shaders/spectrogram.frag.glsl");
 #else
 	// Release version uses the binary data resources compiled into the software
-	std::string vertexShader((const char *) oscilloscope_vert_glsl, oscilloscope_vert_glsl_size);
-	std::string fragmentShader((const char *) oscilloscope_frag_glsl, oscilloscope_frag_glsl_size);
+	std::string vertexShader((const char *)spectrogram_vert_glsl, spectrogram_vert_glsl_size);
+	std::string fragmentShader((const char *)spectrogram_frag_glsl, spectrogram_frag_glsl_size);
 #endif
 
 #ifdef WIN32
@@ -75,8 +75,8 @@ void ChromagramWidget::newOpenGLContextCreated()
 		logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
 
 		textureLUT_ = createColorLookupTexture();
-		//spectrumData_ = createDataTexture(spectrogram_.fftSize()/2, 1);
-		//spectrumHistory_ = createDataTexture(spectrogram_.fftSize() /2, 512);
+		spectrumData_ = createDataTexture(124, 1);
+		spectrumHistory_ = createDataTexture(124, 512);
 		JUCE_CHECK_OPENGL_ERROR
 
 		statusText = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
@@ -186,10 +186,10 @@ void ChromagramWidget::renderOpenGL()
 	spectrumHistory_->bind();
 	JUCE_CHECK_OPENGL_ERROR
 
-	/*if (fftData_.size() >= spectrogram_.fftSize() / 2) {
-		spectrumData_->load(fftData_.data() + waterfallPosition * spectrogram_.fftSize()/2, spectrogram_.fftSize() / 2, 1);
-		spectrumHistory_->load(fftData_.data(), spectrogram_.fftSize() / 2, 512);
-	}*/
+	if (fftData_.size() >= 100) {
+		spectrumData_->load(fftData_.data() + waterfallPosition * chromagram_.height(), chromagram_.height(), 1);
+		spectrumHistory_->load(fftData_.data(), chromagram_.height(), 512);
+	}
 
 	// Read a block that is big enough so we can fill our viewport with a triggered wave of the latest acquired audio
 	// Define Vertices for a Square (the view plane)
@@ -240,7 +240,7 @@ void ChromagramWidget::refreshData()
 	// Don't call this too early when no OpenGL context has been initialized
 	if (spectrumData_ && spectrumHistory_) {
 		waterfallPosition = (waterfallPosition + 1) % 512;
-		//spectrogram_.getData(fftData_.data() + spectrogram_.fftSize()/2 * waterfallPosition);
+		chromagram_.getData(fftData_.data() + chromagram_.height() * waterfallPosition);
 	}
 }
 

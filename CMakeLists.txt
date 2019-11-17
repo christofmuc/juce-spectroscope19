@@ -45,6 +45,8 @@ set(Sources
 	SpectrogramWidget.h
 	shaders/oscilloscope.frag.glsl
 	shaders/oscilloscope.vert.glsl
+	shaders/spectrogram.frag.glsl
+	shaders/spectrogram.vert.glsl
 )
 
 # Setup library
