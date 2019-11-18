@@ -17,18 +17,16 @@
 
 class Chromagram::Impl {
 public:
-	Chromagram::Impl(double fs, size_t blocksize) : params_(48, 20.0 / fs, 440.0 / fs), analyzer_(params_), coefs_(analyzer_), blocksize_(blocksize) {
-		size_t analysis_support = (size_t) ceil(analyzer_.analysis_support());
-		size_t synthesis_support = (size_t) ceil(analyzer_.synthesis_support());
-		ignoreUnused(analysis_support, synthesis_support);
+	Chromagram::Impl(double fs) : params_(12, 20.0 / fs, 440.0 / fs), analyzer_(params_), coefs_(analyzer_), globalSampleIndex_(0) {
+		analysis_support_ = (int64_t) ceil(analyzer_.analysis_support());
+		synthesis_support_ = (int64_t) ceil(analyzer_.synthesis_support());
 	}
 
 	void runAnalyze(AudioBuffer<float> &buffer, size_t blocksize, std::vector<float> &amplitudes, int &outX, int &outY) {
-		// Streaming mode requires us to discard old history
-		//gaborator::forget_before(analyzer_, coefs_, 1024);
-		coefs_ = gaborator::coefs<float>(analyzer_);
+		// Streaming mode requires us to discard old history, using a global "wall clock time" of sample numbers
+		gaborator::forget_before(analyzer_, coefs_, std::max((int64_t) 0, globalSampleIndex_ - analysis_support_));
 
-		analyzer_.analyze(buffer.getReadPointer(0), 0, blocksize, coefs_);
+		analyzer_.analyze(buffer.getReadPointer(0), 0, 0 + blocksize, coefs_);
 
 		gaborator::sample_index_t firstSample, lastSample;
 		analyzer_.get_coef_bounds(coefs_, firstSample, lastSample);
@@ -41,7 +39,7 @@ public:
 		int y_scale_exp = 0; // One pixel per frequency band
 		int64_t dst_x0 = 0; 
 		int64_t dst_y0 = 0;
-		int64_t dst_x1 = blocksize_ >> x_scale_exp;
+		int64_t dst_x1 = blocksize >> x_scale_exp;
 		int64_t dst_y1 = (analyzer_.bandpass_bands_end() - analyzer_.bandpass_bands_begin()) >> y_scale_exp;
 
 		// We are now ready to render the spectrogram, producing a vector of floating - point amplitude values, one per pixel.
@@ -59,20 +57,23 @@ public:
 			amplitudes.data());
 		
 		jassert(dst_x1 == 1);
+		globalSampleIndex_ += blocksize;
 	}
 
+private:
 	gaborator::parameters params_;
 	gaborator::analyzer<float> analyzer_;
 	gaborator::coefs<float> coefs_;
-	size_t blocksize_;
 
-	CriticalSection lock;
+	int64_t globalSampleIndex_;
+	int64_t analysis_support_;
+	int64_t synthesis_support_;
 };
 
 Chromagram::Chromagram(double samplerate, size_t blocksize, std::function<void()> updateCallback) : 
 	updateCallback_(updateCallback), fifo_(2, 4 * (int) blocksize), blocksize_(blocksize), height_(0)
 {
-	impl_ = std::make_unique<Chromagram::Impl>(samplerate, blocksize);
+	impl_ = std::make_unique<Chromagram::Impl>(samplerate);
 }
 
 Chromagram::~Chromagram()
