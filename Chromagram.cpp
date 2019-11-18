@@ -26,14 +26,14 @@ public:
 		// Streaming mode requires us to discard old history, using a global "wall clock time" of sample numbers
 		gaborator::forget_before(analyzer_, coefs_, std::max((int64_t) 0, globalSampleIndex_ - analysis_support_));
 
-		analyzer_.analyze(buffer.getReadPointer(0), 0, 0 + blocksize, coefs_);
+		analyzer_.analyze(buffer.getReadPointer(0), globalSampleIndex_, globalSampleIndex_ + blocksize, coefs_);
 
 		gaborator::sample_index_t firstSample, lastSample;
 		analyzer_.get_coef_bounds(coefs_, firstSample, lastSample);
 		ignoreUnused(firstSample, lastSample);
 
 		// Use the render function of gaborator, even if we should render only a single column
-		int64_t src_x_origin = 0;
+		int64_t src_x_origin = globalSampleIndex_; //!!! This kllls any output to be visible
 		int64_t src_y_origin = analyzer_.bandpass_bands_begin();
 		int x_scale_exp = 10; //TODO - this needs to be mapped with "hop"?
 		int y_scale_exp = 0; // One pixel per frequency band
