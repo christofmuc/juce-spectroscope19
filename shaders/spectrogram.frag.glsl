@@ -20,10 +20,10 @@ float linearXAxis(float x) {
 
 void main()
 {
-    float y = gl_FragCoord.y / resolution.y;
+    float y = 1- gl_FragCoord.y / resolution.y;
 
 	float x;
-	x = 1 - linearXAxis(gl_FragCoord.x);
+	x = linearXAxis(gl_FragCoord.x);
 
 	float amplitude = texture(audioSampleData, vec2(x, 0.0)).r;
 	if (y > upperHalfPercentage) {
@@ -37,7 +37,9 @@ void main()
 	} else {
 		// lower half shows history
 		//float value = texture(waterfall, vec2(x, waterfallPosition)).r;
-		float value = texture(waterfall, vec2(x, (waterfallPosition - (1-y/upperHalfPercentage)))).r;
+		vec2 texturePos = vec2(x, y / upperHalfPercentage);
+		float value = texture(waterfall, texturePos).r;
+		//gl_FragColor = vec4(value, value, value, 1.0f); 
 		gl_FragColor = texture(lutTexture, vec2(value, 0));
 	}
 };

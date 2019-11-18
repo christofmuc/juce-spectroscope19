@@ -17,7 +17,7 @@
 
 class Chromagram::Impl {
 public:
-	Chromagram::Impl(double fs, size_t blocksize) : params_(48, 20.0 / fs, 440.0 / fs), analyzer_(params_), coefs_(analyzer_), blocksize_(blocksize) {
+	Chromagram::Impl(double fs, size_t blocksize) : params_(48, 20.0 / fs, 440.0 / fs), analyzer_(params_), coefs_(analyzer_), blocksize_(blocksize), globalClock_(0) {
 		size_t analysis_support = (size_t) ceil(analyzer_.analysis_support());
 		size_t synthesis_support = (size_t) ceil(analyzer_.synthesis_support());
 		ignoreUnused(analysis_support, synthesis_support);
@@ -26,9 +26,9 @@ public:
 	void runAnalyze(AudioBuffer<float> &buffer, size_t blocksize, std::vector<float> &amplitudes, int &outX, int &outY) {
 		// Streaming mode requires us to discard old history
 		//gaborator::forget_before(analyzer_, coefs_, 1024);
-		coefs_ = gaborator::coefs<float>(analyzer_);
+		//coefs_ = gaborator::coefs<float>(analyzer_);
 
-		analyzer_.analyze(buffer.getReadPointer(0), 0, blocksize, coefs_);
+		analyzer_.analyze(buffer.getReadPointer(0), globalClock_, globalClock_ + blocksize, coefs_);
 
 		gaborator::sample_index_t firstSample, lastSample;
 		analyzer_.get_coef_bounds(coefs_, firstSample, lastSample);
@@ -38,11 +38,13 @@ public:
 		int64_t src_x_origin = 0;
 		int64_t src_y_origin = analyzer_.bandpass_bands_begin();
 		int x_scale_exp = 10; //TODO - this needs to be mapped with "hop"?
+		while ((globalClock_ >> x_scale_exp) > 512)
+			x_scale_exp++;
 		int y_scale_exp = 0; // One pixel per frequency band
 		int64_t dst_x0 = 0; 
 		int64_t dst_y0 = 0;
-		int64_t dst_x1 = blocksize_ >> x_scale_exp;
-		int64_t dst_y1 = (analyzer_.bandpass_bands_end() - analyzer_.bandpass_bands_begin()) >> y_scale_exp;
+		int64_t dst_x1 = 512; // globalClock_ >> x_scale_exp;
+		int64_t dst_y1 = 512; // (analyzer_.bandpass_bands_end() - analyzer_.bandpass_bands_begin()) >> y_scale_exp;
 
 		// We are now ready to render the spectrogram, producing a vector of floating - point amplitude values, one per pixel.
 		// Although this is stored as a 1 - dimensional vector of floats, its contents should be interpreted as a 2 - dimensional rectangular array
@@ -53,18 +55,19 @@ public:
 		gaborator::render_p2scale(
 			analyzer_,
 			coefs_,
-			src_x_origin, src_y_origin,
+			src_x_origin, 
+			src_y_origin,
 			dst_x0, dst_x1, x_scale_exp,
 			dst_y0, dst_y1, y_scale_exp,
-			amplitudes.data());
-		
-		jassert(dst_x1 == 1);
+			amplitudes.data());		
+		globalClock_ += blocksize;
 	}
 
 	gaborator::parameters params_;
 	gaborator::analyzer<float> analyzer_;
 	gaborator::coefs<float> coefs_;
 	size_t blocksize_;
+	int64_t globalClock_;
 
 	CriticalSection lock;
 };
@@ -93,7 +96,6 @@ void Chromagram::newData(const AudioSourceChannelInfo& data)
 			int widthRendered;
 			int heightRendered;
 			impl_->runAnalyze(buffer, blocksize_, data_, widthRendered, heightRendered);
-			jassert(widthRendered == 1);
 			height_ = heightRendered;
 		}
 		updateCallback_();
@@ -113,10 +115,9 @@ void Chromagram::getData(float *out)
 	float gain = 15;
 	for (auto &value : data_) {
 		if (value < eps)
-			value = 0.0f;
+			*(out++) = 0.0f;
 		else
-			value = gain * sqrtf(value);
+			*(out++) = gain * sqrtf(value);
 	}
-	std::copy(data_.data(), data_.data() + data_.size(), out);
 }
 

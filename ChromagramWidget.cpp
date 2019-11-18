@@ -17,7 +17,7 @@
 #include "BinaryResources.h"
 
 //const int numBins = 247; // How do I change that dynamically?
-const int numBins = 492; // How do I change that dynamically?
+const int numBins = 512; // How do I change that dynamically?
 
 ChromagramWidget::ChromagramWidget(Chromagram &chromagram) :
 	chromagram_(chromagram)
@@ -27,7 +27,7 @@ ChromagramWidget::ChromagramWidget(Chromagram &chromagram) :
 	statusLabel_.setJustificationType(Justification::topLeft);
 	statusLabel_.setFont(Font(14.0f));
 
-	fftData_.resize(numBins * 512);
+	fftData_.resize(512 * 512);
 }
 
 void ChromagramWidget::newOpenGLContextCreated()
@@ -79,7 +79,7 @@ void ChromagramWidget::newOpenGLContextCreated()
 
 		textureLUT_ = createColorLookupTexture();
 		spectrumData_ = createDataTexture(numBins, 1);
-		spectrumHistory_ = createDataTexture(numBins, 512);
+		spectrumHistory_ = createDataTexture(512, 512);
 		JUCE_CHECK_OPENGL_ERROR
 
 		statusText = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
@@ -162,15 +162,17 @@ void ChromagramWidget::renderOpenGL()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glEnable(GL_TEXTURE_2D);
+	JUCE_CHECK_OPENGL_ERROR
 
 	shader_->use();
+	JUCE_CHECK_OPENGL_ERROR
 
 	// Setup the Uniforms for use in the Shader
 	resolution_->set((GLfloat)renderingScale * getWidth(), (GLfloat)renderingScale * getHeight());
 	JUCE_CHECK_OPENGL_ERROR
 
 	setUniform(lutTexture_, 0);
-	setUniform(waterfallUniform_, waterfallPosition/512.0f);
+	//setUniform(waterfallUniform_, waterfallPosition/512.0f);
 	setUniform(uUpperHalfPercentage_, upperHalfPercentage_);
 	setUniform(audioSampleData_, 1);
 	setUniform(waterfallTexture_, 2);
@@ -190,7 +192,7 @@ void ChromagramWidget::renderOpenGL()
 
 	if (fftData_.size() >= 100) {
 		spectrumData_->load(fftData_.data() + waterfallPosition * chromagram_.height(), chromagram_.height(), 1);
-		spectrumHistory_->load(fftData_.data(), chromagram_.height(), 512);
+		spectrumHistory_->load(fftData_.data(), 512, 512);
 	}
 
 	// Read a block that is big enough so we can fill our viewport with a triggered wave of the latest acquired audio
@@ -242,7 +244,7 @@ void ChromagramWidget::refreshData()
 	// Don't call this too early when no OpenGL context has been initialized
 	if (spectrumData_ && spectrumHistory_) {
 		waterfallPosition = (waterfallPosition + 1) % 512;
-		chromagram_.getData(fftData_.data() + chromagram_.height() * waterfallPosition);
+		chromagram_.getData(fftData_.data() /*+ chromagram_.height() * waterfallPosition*/);
 	}
 }
 
