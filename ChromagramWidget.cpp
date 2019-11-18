@@ -17,9 +17,10 @@
 #include "BinaryResources.h"
 
 //const int numBins = 247; // How do I change that dynamically?
-const int numBins = 492; // How do I change that dynamically?
+//const int numBins = 492; // How do I change that dynamically?
+const int numBins = 12; // How do I change that dynamically?
 
-ChromagramWidget::ChromagramWidget(Chromagram &chromagram) :
+ChromagramWidget::ChromagramWidget(ChromagramMath &chromagram) :
 	chromagram_(chromagram)
 {
 	// Setup GUI Overlay Label: Status of Shaders, compiler errors, etc.

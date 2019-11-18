@@ -10,10 +10,10 @@
 
 #include "Fifo.h"
 
-class Chromagram  {
+class ChromagramMath  {
 public:
-	Chromagram(double samplerate, size_t blocksize, std::function<void()> updateCallback);
-	virtual ~Chromagram();
+	ChromagramMath(double samplerate, size_t blocksize, std::function<void()> updateCallback);
+	virtual ~ChromagramMath();
 
 	void getData(float *out);
 	void newData(const AudioSourceChannelInfo& data);

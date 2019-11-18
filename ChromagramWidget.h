@@ -8,7 +8,7 @@
 
 #include "JuceHeader.h"
 
-#include "Chromagram.h"
+#include "ChromagramMath.h"
 
 #include "OpenGLFloatTexture.h"
 #include "ShaderBasedComponent.h"
@@ -16,7 +16,7 @@
 class ChromagramWidget : public ShaderBasedComponent
 {
 public:
-	ChromagramWidget(Chromagram &spectrogram);
+	ChromagramWidget(ChromagramMath &spectrogram);
 
 	// OpenGLRenderer interface
 	void newOpenGLContextCreated() override;
@@ -33,7 +33,7 @@ private:
 	std::shared_ptr<OpenGLTexture> createColorLookupTexture();
 	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int w, int h);
 
-	Chromagram &chromagram_;
+	ChromagramMath &chromagram_;
 
 	GLuint vertexBuffer_, elements_;
 	std::shared_ptr<OpenGLTexture> textureLUT_;
