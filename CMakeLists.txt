@@ -31,8 +31,9 @@ set(SHADER_FILES
 
 # Create our binary resources - the shaders
 add_custom_command(
-		OUTPUT BinaryResources.h 
+		OUTPUT ${CMAKE_CURRENT_LIST_DIR}/BinaryResources.h 
 		COMMAND ${CMAKE_COMMAND} -P createResources.cmake 
+		MAIN_DEPENDENCY createResources.cmake 
 		DEPENDS ${SHADER_FILES}
 		COMMENT "Compiling binary resources"
 		WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
@@ -59,8 +60,14 @@ set(Sources
 	${SHADER_FILES}
 )
 
+set_source_files_properties(
+	BinaryResources.h
+	PROPERTIES GENERATED TRUE
+)
+
 # Setup library
 add_library(juce-spectroscope19 ${Sources})
+
 target_include_directories(juce-spectroscope19 INTERFACE ${CMAKE_CURRENT_LIST_DIR} PUBLIC ${GLEW_DIRECTORY} "${asiosdk_SOURCE_DIR}/common" ${GABORATOR_DIRECTORY})
 target_link_libraries(juce-spectroscope19 PRIVATE ${JUCE_LIBRARIES})
 
