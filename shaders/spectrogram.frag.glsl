@@ -20,7 +20,7 @@ float linearXAxis(float x) {
 
 void main()
 {
-    float y = 1- gl_FragCoord.y / resolution.y;
+    float y = gl_FragCoord.y / resolution.y;
 
 	float x;
 	x = linearXAxis(gl_FragCoord.x);
@@ -39,7 +39,7 @@ void main()
 		//float value = texture(waterfall, vec2(x, waterfallPosition)).r;
 		vec2 texturePos = vec2(x, y / upperHalfPercentage);
 		float value = texture(waterfall, texturePos).r;
-		//gl_FragColor = vec4(value, value, value, 1.0f); 
-		gl_FragColor = texture(lutTexture, vec2(value, 0));
+		gl_FragColor = vec4(value, value, value, 1.0f); 
+		//gl_FragColor = texture(lutTexture, vec2(value, 0));
 	}
 };
