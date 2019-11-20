@@ -42,15 +42,8 @@ void SpectogramWidget::newOpenGLContextCreated()
 		glewInitialized = true;
 	}
 
-#ifdef JUCE_DEBUG
-	// Debug version loads the shader files relative to the project directory. This is not robust, I should rather copy the shader file next to the executable in Debug mode.
-	String vertexShader = loadShader("../../Module/shaders/oscilloscope.vert.glsl"); 
-	String fragmentShader = loadShader("../../Module/shaders/oscilloscope.frag.glsl");
-#else
-	// Release version uses the binary data resources compiled into the software
-	std::string vertexShader((const char *) oscilloscope_vert_glsl, oscilloscope_vert_glsl_size);
-	std::string fragmentShader((const char *) oscilloscope_frag_glsl, oscilloscope_frag_glsl_size);
-#endif
+	std::string vertexShader((const char *)oscilloscope_vert_glsl, oscilloscope_vert_glsl_size);
+	std::string fragmentShader((const char *)oscilloscope_frag_glsl, oscilloscope_frag_glsl_size);
 
 #ifdef WIN32
 	// Try to turn on VSync, if you are on Windows and your driver supports it! I had to update my NVidia driver
@@ -81,21 +74,21 @@ void SpectogramWidget::newOpenGLContextCreated()
 		logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
 
 		textureLUT_ = createColorLookupTexture();
-			if (!spectrogram_.expired()) {
-				spectrumData_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 1);
-				spectrumHistory_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 512);
-			}
+		if (!spectrogram_.expired()) {
+			spectrumData_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 1);
+			spectrumHistory_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 512);
+		}
 		JUCE_CHECK_OPENGL_ERROR
 
-		statusText = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
+			statusText = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
 	}
 	else
 	{
 		statusText = shader_->getLastError();
 	}
 
-	context_.extensions.glGenBuffers(1, &vertexBuffer_); 
-	context_.extensions.glGenBuffers(1, &elements_); 
+	context_.extensions.glGenBuffers(1, &vertexBuffer_);
+	context_.extensions.glGenBuffers(1, &elements_);
 
 	MessageManager::callAsync([this, statusText]() {
 		statusLabel_.setText(statusText, dontSendNotification);
@@ -116,12 +109,12 @@ std::shared_ptr<OpenGLTexture> SpectogramWidget::createColorLookupTexture() {
 	pixels[0] = PixelARGB(255, 0, 0, 0);
 	pixels[255] = PixelARGB(255, 255, 255, 0);
 	for (int i = 1; i < 32; i++) {
-		pixels[i] = PixelARGB(255, 255, (uint8) (255 - i * 8), 0);
-		pixels[255 - i] = PixelARGB(255, 255, (uint8) (255 - i * 8), 0);
+		pixels[i] = PixelARGB(255, 255, (uint8)(255 - i * 8), 0);
+		pixels[255 - i] = PixelARGB(255, 255, (uint8)(255 - i * 8), 0);
 	}
 	for (int i = 0; i < 96; i++) {
-		pixels[32 + i] = PixelARGB(255, (uint8) (255 - (i * 4 / 3)), 0, (uint8) (i * 4/ 3));
-		pixels[223 - i] = PixelARGB(255, (uint8) (255 - (i * 4 / 3)), 0, (uint8) (i * 4 / 3));
+		pixels[32 + i] = PixelARGB(255, (uint8)(255 - (i * 4 / 3)), 0, (uint8)(i * 4 / 3));
+		pixels[223 - i] = PixelARGB(255, (uint8)(255 - (i * 4 / 3)), 0, (uint8)(i * 4 / 3));
 	}
 	for (int i = 0; i < 256; i++) {
 		//pixels[i] = PixelARGB(255, i, i, i);
@@ -136,30 +129,30 @@ std::shared_ptr<OpenGLTexture> SpectogramWidget::createColorLookupTexture() {
 	}
 	texture->bind();
 	JUCE_CHECK_OPENGL_ERROR
-	texture->loadARGB(pixels, 256, 1);
+		texture->loadARGB(pixels, 256, 1);
 	JUCE_CHECK_OPENGL_ERROR
-	texture->unbind();
+		texture->unbind();
 	JUCE_CHECK_OPENGL_ERROR
-	return texture;
+		return texture;
 }
 
 std::shared_ptr<OpenGLFloatTexture> SpectogramWidget::createDataTexture(int w, int h) {
 	auto texture = std::make_shared<OpenGLFloatTexture>();
 	texture->bind();
 	JUCE_CHECK_OPENGL_ERROR
-	GLfloat *emptyPixels = new GLfloat[w * h];
+		GLfloat *emptyPixels = new GLfloat[w * h];
 	texture->create(w, h, emptyPixels);
 	delete emptyPixels;
 	texture->unbind();
 	JUCE_CHECK_OPENGL_ERROR
-	return texture;
+		return texture;
 }
 
 void SpectogramWidget::renderOpenGL()
 {
 	jassert(OpenGLHelpers::isContextActive());
 
-	auto renderingScale = (float) context_.getRenderingScale();
+	auto renderingScale = (float)context_.getRenderingScale();
 	glViewport(0, 0, roundToInt(renderingScale * getWidth()), roundToInt(renderingScale * getHeight()));
 
 	OpenGLHelpers::clear(getLookAndFeel().findColour(ResizableWindow::backgroundColourId));
@@ -174,9 +167,9 @@ void SpectogramWidget::renderOpenGL()
 	resolution_->set((GLfloat)renderingScale * getWidth(), (GLfloat)renderingScale * getHeight());
 	JUCE_CHECK_OPENGL_ERROR
 
-	setUniform(lutTexture_, 0);
+		setUniform(lutTexture_, 0);
 	setUniform(logXAxis_, xLogAxis_);
-	setUniform(waterfallUniform_, waterfallPosition/512.0f);
+	setUniform(waterfallUniform_, waterfallPosition / 512.0f);
 	setUniform(uUpperHalfPercentage_, upperHalfPercentage_);
 	setUniform(audioSampleData_, 1);
 	setUniform(waterfallTexture_, 2);
@@ -186,18 +179,18 @@ void SpectogramWidget::renderOpenGL()
 	textureLUT_->bind();
 	JUCE_CHECK_OPENGL_ERROR
 
-	context_.extensions.glActiveTexture(GL_TEXTURE1);
+		context_.extensions.glActiveTexture(GL_TEXTURE1);
 	spectrumData_->bind();
 	JUCE_CHECK_OPENGL_ERROR
 
-	context_.extensions.glActiveTexture(GL_TEXTURE2);
+		context_.extensions.glActiveTexture(GL_TEXTURE2);
 	spectrumHistory_->bind();
 	JUCE_CHECK_OPENGL_ERROR
 
 		if (!spectrogram_.expired() && fftData_.size() >= spectrogram_.lock()->fftSize() / 2) {
 			spectrumData_->load(fftData_.data() + waterfallPosition * spectrogram_.lock()->fftSize() / 2, spectrogram_.lock()->fftSize() / 2, 1);
 			spectrumHistory_->load(fftData_.data(), spectrogram_.lock()->fftSize() / 2, 512);
-	}
+		}
 
 	// Read a block that is big enough so we can fill our viewport with a triggered wave of the latest acquired audio
 	// Define Vertices for a Square (the view plane)
