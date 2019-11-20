@@ -53,7 +53,9 @@ void Spectrogram::newData(const AudioSourceChannelInfo& data)
 	// Check if there is enough data available for the next block
 	if (fifo_.availableSamples() >= kHopSize) {
 		prepareBufferForSpectrum();
-		updateCallback_();
+		MessageManager::callAsync([this]() {
+			updateCallback_();
+		});
 	}
 }
 
