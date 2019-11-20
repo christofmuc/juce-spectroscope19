@@ -16,7 +16,7 @@
 
 #include "BinaryResources.h"
 
-SpectogramWidget::SpectogramWidget(Spectrogram &spectrogram) : 
+SpectogramWidget::SpectogramWidget(std::weak_ptr<Spectrogram> spectrogram) :
 	spectrogram_(spectrogram)
 {
 	// Setup GUI Overlay Label: Status of Shaders, compiler errors, etc.
@@ -24,7 +24,13 @@ SpectogramWidget::SpectogramWidget(Spectrogram &spectrogram) :
 	statusLabel_.setJustificationType(Justification::topLeft);
 	statusLabel_.setFont(Font(14.0f));
 
-	fftData_.resize(spectrogram_.fftSize() / 2 * 512); // History of the last 512 FFTs
+	if (!spectrogram_.expired()) {
+		fftData_.resize(spectrogram_.lock()->fftSize() / 2 * 512); // History of the last 512 FFTs
+	}
+	else {
+		// Not so good, where is your spectrogram instance gone?
+		jassert(false);
+	}
 }
 
 void SpectogramWidget::newOpenGLContextCreated()
@@ -75,8 +81,10 @@ void SpectogramWidget::newOpenGLContextCreated()
 		logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
 
 		textureLUT_ = createColorLookupTexture();
-		spectrumData_ = createDataTexture(spectrogram_.fftSize()/2, 1);
-		spectrumHistory_ = createDataTexture(spectrogram_.fftSize() /2, 512);
+			if (!spectrogram_.expired()) {
+				spectrumData_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 1);
+				spectrumHistory_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 512);
+			}
 		JUCE_CHECK_OPENGL_ERROR
 
 		statusText = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
@@ -186,9 +194,9 @@ void SpectogramWidget::renderOpenGL()
 	spectrumHistory_->bind();
 	JUCE_CHECK_OPENGL_ERROR
 
-	if (fftData_.size() >= spectrogram_.fftSize() / 2) {
-		spectrumData_->load(fftData_.data() + waterfallPosition * spectrogram_.fftSize()/2, spectrogram_.fftSize() / 2, 1);
-		spectrumHistory_->load(fftData_.data(), spectrogram_.fftSize() / 2, 512);
+		if (!spectrogram_.expired() && fftData_.size() >= spectrogram_.lock()->fftSize() / 2) {
+			spectrumData_->load(fftData_.data() + waterfallPosition * spectrogram_.lock()->fftSize() / 2, spectrogram_.lock()->fftSize() / 2, 1);
+			spectrumHistory_->load(fftData_.data(), spectrogram_.lock()->fftSize() / 2, 512);
 	}
 
 	// Read a block that is big enough so we can fill our viewport with a triggered wave of the latest acquired audio
@@ -238,9 +246,9 @@ void SpectogramWidget::resized()
 void SpectogramWidget::refreshData()
 {
 	// Don't call this too early when no OpenGL context has been initialized
-	if (spectrumData_ && spectrumHistory_) {
+	if (spectrumData_ && spectrumHistory_ && !spectrogram_.expired()) {
 		waterfallPosition = (waterfallPosition + 1) % 512;
-		spectrogram_.getData(fftData_.data() + spectrogram_.fftSize()/2 * waterfallPosition);
+		spectrogram_.lock()->getData(fftData_.data() + spectrogram_.lock()->fftSize() / 2 * waterfallPosition);
 	}
 }
 

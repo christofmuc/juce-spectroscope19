@@ -16,7 +16,7 @@
 class SpectogramWidget : public ShaderBasedComponent
 {
 public:
-	SpectogramWidget(Spectrogram &spectrogram);
+	SpectogramWidget(std::weak_ptr<Spectrogram> spectrogram);
 
 	// OpenGLRenderer interface
 	void newOpenGLContextCreated() override;
@@ -36,7 +36,7 @@ private:
 	std::shared_ptr<OpenGLTexture> createColorLookupTexture();
 	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int w, int h);
 
-	Spectrogram &spectrogram_;
+	std::weak_ptr<Spectrogram> spectrogram_;
 
 	GLuint vertexBuffer_, elements_;
 	std::shared_ptr<OpenGLTexture> textureLUT_;
