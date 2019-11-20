@@ -82,7 +82,8 @@ void OpenGLFloatTexture::release()
 {
 	if (textureID_ != 0)
 	{
-		jassert(context_ == OpenGLContext::getCurrentContext());
+		auto currentContext = OpenGLContext::getCurrentContext();
+		jassert(context_ == currentContext);
 		if (context_ == OpenGLContext::getCurrentContext())
 		{
 			glDeleteTextures(1, &textureID_);
