@@ -29,6 +29,7 @@ create_resources(shaders BinaryResources.h)
 # Define the sources for the static library
 set(Sources
 	Fifo.h
+	ManagedOpenGLComponent.h
 	OpenGLFloatTexture.cpp
 	OpenGLFloatTexture.h
 	OpenGLHelpers.cpp
