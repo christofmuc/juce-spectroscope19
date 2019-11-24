@@ -35,19 +35,24 @@ find_package(JUCE REQUIRED
 
 # Load the macro to process binary resources
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
-include(BinaryResources)
 
-# Create our binary resources - the shaders
-create_resources(shaders BinaryResources.h)
 
 set(SHADER_FILES 
 	shaders/oscilloscope.frag.glsl
 	shaders/oscilloscope.vert.glsl
 )
 
+add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/BinaryResources.h
+	COMMAND ${CMAKE_COMMAND} -P createResources.cmake	
+	DEPENDS ${SHADER_FILES}
+	COMMENT "Compiling binary resources"
+	WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+)
+
 # Define the sources for the static library
 set(Sources
 	Fifo.h
+	BinaryResources.h
 	ManagedOpenGLComponent.h
 	OpenGLFloatTexture.cpp
 	OpenGLFloatTexture.h
@@ -60,6 +65,11 @@ set(Sources
 	SpectrogramWidget.cpp
 	SpectrogramWidget.h
 	${SHADER_FILES}
+)
+
+set_source_files_properties(
+	BinaryResources.h
+	PROPERTIES GENERATED TRUE
 )
 
 # Setup library
