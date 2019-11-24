@@ -45,12 +45,12 @@ void SpectogramWidget::newOpenGLContextCreated()
 	std::string vertexShader;
 	std::string fragmentShader;
 
-	if (GLEW_VERSION_3_3) {
+	if (GLEW_VERSION_3_0) {
 		vertexShader = std::string((const char *)oscilloscope_vert_glsl, oscilloscope_vert_glsl_size);
 		fragmentShader = std::string((const char *)oscilloscope_frag_glsl, oscilloscope_frag_glsl_size);
 	}
 	else {
-		std::cerr << "System does not support OpenGL 3.3, fatal!" << std::endl;
+		std::cerr << "System does not support OpenGL 3.0, fatal!" << std::endl;
 		exit(-1);
 	}
 

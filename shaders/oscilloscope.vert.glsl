@@ -4,11 +4,11 @@
    Dual licensed: Distributed under Affero GPL license by default, an MIT license is available for purchase
 */
 
-#version 330 core 
+#version 130
 
-uniform vec3 position;
+in vec3 position;
 
 void main()
 {
-	gl_Position = vec4(position, 1.0);
+	gl_Position = vec4(position, 1.0); 
 }
