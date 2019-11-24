@@ -51,4 +51,4 @@ void main()
 		value = 1 + value / 100.0;
 		gl_FragColor = texture(lutTexture, vec2(value, 0));
 	}
-};
+}

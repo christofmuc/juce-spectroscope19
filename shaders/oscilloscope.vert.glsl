@@ -6,7 +6,7 @@
 
 #version 330 core 
 
-attribute vec3 position;
+uniform vec3 position;
 
 void main()
 {

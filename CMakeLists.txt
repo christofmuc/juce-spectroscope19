@@ -19,12 +19,31 @@ find_package(JUCE REQUIRED
 		juce_dsp
 )
 
+#IF(WIN32)
+	FetchContent_Declare(
+		glslang
+		URL https://github.com/KhronosGroup/glslang/releases/download/master-tot/glslang-master-windows-x64-Release.zip
+	)
+	FetchContent_MakeAvailable(glslang)
+#ELSEIF(UNIX)
+	FetchContent_Declare(
+		glslang
+		URL https://github.com/KhronosGroup/glslang/releases/download/master-tot/glslang-master-linux-Release.zip
+	)
+	FetchContent_MakeAvailable(glslang)
+#ENDIF
+
 # Load the macro to process binary resources
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
 include(BinaryResources)
 
 # Create our binary resources - the shaders
 create_resources(shaders BinaryResources.h)
+
+set(SHADER_FILES 
+	shaders/oscilloscope.frag.glsl
+	shaders/oscilloscope.vert.glsl
+)
 
 # Define the sources for the static library
 set(Sources
@@ -40,14 +59,21 @@ set(Sources
 	Spectrogram.h
 	SpectrogramWidget.cpp
 	SpectrogramWidget.h
-	shaders/oscilloscope.frag.glsl
-	shaders/oscilloscope.vert.glsl
+	${SHADER_FILES}
 )
 
 # Setup library
 add_library(juce-spectroscope19 ${Sources})
 target_include_directories(juce-spectroscope19 INTERFACE ${CMAKE_CURRENT_LIST_DIR} PUBLIC ${GLEW_DIRECTORY} "${asiosdk_SOURCE_DIR}/common")
 target_link_libraries(juce-spectroscope19 PRIVATE ${JUCE_LIBRARIES})
+
+# Run the shader verification step!
+foreach(SHADER ${SHADER_FILES})
+	add_custom_command(TARGET juce-spectroscope19 PRE_BUILD
+		COMMAND "${glslang_SOURCE_DIR}/bin/glslangValidator.exe" ${SHADER}
+		COMMENT "Running glslang shader verification on ${SHADER}"
+		WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
+endforeach()
 
 # Pedantic about warnings
 IF(MSVC)
