@@ -19,19 +19,19 @@ find_package(JUCE REQUIRED
 		juce_dsp
 )
 
-#IF(WIN32)
+IF(WIN32)
 	FetchContent_Declare(
 		glslang
 		URL https://github.com/KhronosGroup/glslang/releases/download/master-tot/glslang-master-windows-x64-Release.zip
 	)
 	FetchContent_MakeAvailable(glslang)
-#ELSEIF(UNIX)
+ELSEIF(UNIX)
 	FetchContent_Declare(
 		glslang
 		URL https://github.com/KhronosGroup/glslang/releases/download/master-tot/glslang-master-linux-Release.zip
 	)
 	FetchContent_MakeAvailable(glslang)
-#ENDIF
+ENDIF()
 
 # Load the macro to process binary resources
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
