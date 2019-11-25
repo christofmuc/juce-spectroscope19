@@ -80,7 +80,7 @@ target_link_libraries(juce-spectroscope19 PRIVATE ${JUCE_LIBRARIES})
 # Run the shader verification step!
 foreach(SHADER ${SHADER_FILES})
 	add_custom_command(TARGET juce-spectroscope19 PRE_BUILD
-		COMMAND "${glslang_SOURCE_DIR}/bin/glslangValidator.exe" ${SHADER}
+		COMMAND "${glslang_SOURCE_DIR}/bin/glslangValidator" ${SHADER}
 		COMMENT "Running glslang shader verification on ${SHADER}"
 		WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
 endforeach()
