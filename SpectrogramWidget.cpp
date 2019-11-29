@@ -81,6 +81,7 @@ void SpectogramWidget::newOpenGLContextCreated()
 		waterfallTexture_ = createUniform(context_, *shader_, "waterfall");
 		lutTexture_ = createUniform(context_, *shader_, "lutTexture");
 		logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
+		uHorizontal_ = createUniform(context_, *shader_, "horizontalMode");
 
 		textureLUT_ = createColorLookupTexture();
 		if (!spectrogram_.expired()) {
@@ -178,6 +179,7 @@ void SpectogramWidget::renderOpenGL()
 
 		setUniform(lutTexture_, 0);
 	setUniform(logXAxis_, xLogAxis_);
+	setUniform(uHorizontal_, horizontal_);
 	setUniform(waterfallUniform_, waterfallPosition / 512.0f);
 	setUniform(uUpperHalfPercentage_, upperHalfPercentage_);
 	setUniform(audioSampleData_, 1);
@@ -257,5 +259,10 @@ void SpectogramWidget::refreshData()
 void SpectogramWidget::setXAxis(bool logAxis)
 {
 	xLogAxis_ = logAxis ? 1 : 0;
+}
+
+void SpectogramWidget::setHorizontalMode(bool horizontal)
+{
+	horizontal_ = horizontal ? 1 : 0;
 }
 
