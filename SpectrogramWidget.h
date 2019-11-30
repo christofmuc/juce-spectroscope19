@@ -50,7 +50,7 @@ private:
 	std::vector<GLfloat> fftData_; // Current line from the spectrogram
 	int waterfallPosition = 0;
 	int xLogAxis_ = 1;
-	int horizontal_ = 1;
+	int horizontal_ = 0;
 	float upperHalfPercentage_ = 0.618f;
 
 	Label statusLabel_;
