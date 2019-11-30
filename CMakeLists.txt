@@ -6,18 +6,20 @@
 
 project(juce-spectroscope19)
 
-# Find JUCE, and add the components we need
-SET(JUCE_DIR_HINT "${CMAKE_CURRENT_LIST_DIR}/../third_party")
-find_package(JUCE REQUIRED 
-	COMPONENTS 
-		juce_core		
-		juce_events
-		juce_audio_basics
-		juce_audio_devices
-		juce_data_structures
-		juce_opengl
-		juce_dsp
-)
+IF(NOT DEFINED JUCE_LIBRARIES)
+	# Find JUCE, and add the components we need
+	SET(JUCE_DIR_HINT "${CMAKE_CURRENT_LIST_DIR}/../third_party")
+	find_package(JUCE REQUIRED 
+		COMPONENTS 
+			juce_core		
+			juce_events
+			juce_audio_basics
+			juce_audio_devices
+			juce_data_structures
+			juce_opengl
+			juce_dsp
+	)
+ENDIF()
 
 IF(WIN32)
 	FetchContent_Declare(
@@ -75,7 +77,7 @@ set_source_files_properties(
 # Setup library
 add_library(juce-spectroscope19 ${Sources})
 target_include_directories(juce-spectroscope19 INTERFACE ${CMAKE_CURRENT_LIST_DIR} PUBLIC ${GLEW_DIRECTORY} "${asiosdk_SOURCE_DIR}/common")
-target_link_libraries(juce-spectroscope19 PRIVATE ${JUCE_LIBRARIES})
+target_include_directories(juce-spectroscope19 PRIVATE ${JUCE_INCLUDES})
 
 # Run the shader verification step!
 foreach(SHADER ${SHADER_FILES})
