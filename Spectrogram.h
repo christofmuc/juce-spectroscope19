@@ -6,7 +6,8 @@
 
 #pragma once
 
-#include "JuceHeader.h"
+#include <juce_dsp/juce_dsp.h>
+#include <juce_opengl/juce_opengl.h>
 
 #include "Fifo.h"
 
@@ -19,16 +20,16 @@ public:
 	void getData(float *out);
 	float *peakHoldData();
 
-	void newData(const AudioSourceChannelInfo& data);
+	void newData(const juce::AudioSourceChannelInfo &data);
 
 private:
 	void prepareBufferForSpectrum();
 
 	AudioBufferFiFo<float> fifo_;
-	AudioBuffer<GLfloat> readBuffer_;
+	juce::AudioBuffer<GLfloat> readBuffer_;
 
-	dsp::FFT forwardFFT_;
-	dsp::WindowingFunction<float> window_;
+	juce::dsp::FFT forwardFFT_;
+	juce::dsp::WindowingFunction<float> window_;
 	std::vector<GLfloat> inputData_; 
 	int inputDataAvailable_;
 	std::vector<GLfloat> windowedData_;
@@ -39,5 +40,5 @@ private:
 
 	std::function<void()> updateCallback_;
 
-	CriticalSection lock;
+	juce::CriticalSection lock;
 };

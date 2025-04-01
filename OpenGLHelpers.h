@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "JuceHeader.h"
+#include <juce_opengl/juce_opengl.h>
 
 void checkGLError(const char* file, const int line);
 int getAllowedTextureSize(int x);

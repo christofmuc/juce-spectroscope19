@@ -5,6 +5,8 @@
 
 #include "OpenGLHelpers.h"
 
+using namespace juce::gl;
+
 const char* getGLErrorMessage(const GLenum e) noexcept
 {
 	switch (e)
@@ -42,7 +44,7 @@ const char* getGLErrorMessage(const GLenum e) noexcept
 
 #endif
 
-bool checkPeerIsValid(OpenGLContext* context)
+bool checkPeerIsValid(juce::OpenGLContext* context)
 {
 	jassert(context != nullptr);
 
@@ -79,7 +81,7 @@ bool checkPeerIsValid(OpenGLContext* context)
 
 void checkGLError(const char* file, const int line)
 {
-	ignoreUnused(file, line); // Release build will otherwise issue warning
+	juce::ignoreUnused(file, line); // Release build will otherwise issue warning
 	for (;;)
 	{
 		const GLenum e = glGetError();
@@ -88,10 +90,11 @@ void checkGLError(const char* file, const int line)
 			break;
 
 		// if the peer is not valid then ignore errors
-		if (!checkPeerIsValid(OpenGLContext::getCurrentContext()))
+		if (!checkPeerIsValid(juce::OpenGLContext::getCurrentContext()))
 			continue;
 
-		DBG("***** " << getGLErrorMessage(e) << "  at " << file << " : " << line);
+		auto errorMsg = getGLErrorMessage(e);
+		DBG("***** " << errorMsg << "  at " << file << " : " << line);
 		jassertfalse;
 	}
 }
@@ -106,6 +109,6 @@ int getAllowedTextureSize(int x)
 #if JUCE_OPENGL_ALLOW_NON_POWER_OF_TWO_TEXTURES
 	return x;
 #else
-	return nextPowerOfTwo(x);
+	return juce::nextPowerOfTwo(x);
 #endif
 }

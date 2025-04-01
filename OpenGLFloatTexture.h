@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "JuceHeader.h"
+#include <juce_opengl/juce_opengl.h>
 
 class OpenGLFloatTexture
 {
@@ -31,7 +31,7 @@ private:
 	GLuint textureID_;
 	int width_;
 	int height_;
-	OpenGLContext* context_;
+	juce::OpenGLContext* context_;
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenGLFloatTexture)
 };

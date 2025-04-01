@@ -6,17 +6,17 @@
 
 #pragma once
 
-#include "JuceHeader.h"
+#include <juce_core/juce_core.h>
 
 template <class T>
 struct AudioBufferFiFo 
 {
 	AudioBufferFiFo(int numChannels, int numSamples) {
-		abstractFifo_ = std::make_unique<AbstractFifo>(numSamples);
-		audioBuffer_ = std::make_unique<AudioBuffer<float>>(numChannels, numSamples);
+		abstractFifo_ = std::make_unique<juce::AbstractFifo>(numSamples);
+		audioBuffer_ = std::make_unique<juce::AudioBuffer<float>>(numChannels, numSamples);
 	}
 
-	void addToFifo(const AudioSourceChannelInfo& bufferToFill)
+	void addToFifo(const juce::AudioSourceChannelInfo& bufferToFill)
 	{
 		jassert(bufferToFill.buffer != nullptr);
 		jassert(bufferToFill.buffer->getNumChannels() == audioBuffer_->getNumChannels());
@@ -36,7 +36,7 @@ struct AudioBufferFiFo
 		abstractFifo_->finishedWrite(size1 + size2);
 	}
 
-	void readFromFifo(AudioBuffer<float> *destBuffer, int numSamples)
+	void readFromFifo(juce::AudioBuffer<float>* destBuffer, int numSamples)
 	{
 		jassert(numSamples <= abstractFifo_->getNumReady());
 		jassert(destBuffer->getNumChannels() == audioBuffer_->getNumChannels());
@@ -61,6 +61,6 @@ struct AudioBufferFiFo
 	}
 
 private:
-	std::unique_ptr<AbstractFifo> abstractFifo_;
-	std::unique_ptr<AudioBuffer<float>> audioBuffer_;
+	std::unique_ptr<juce::AbstractFifo> abstractFifo_;
+	std::unique_ptr<juce::AudioBuffer<float>> audioBuffer_;
 };

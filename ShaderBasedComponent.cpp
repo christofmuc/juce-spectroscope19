@@ -8,7 +8,7 @@
 
 ShaderBasedComponent::ShaderBasedComponent() : isRunning_(false)
 {
-	context_.setOpenGLVersionRequired(OpenGLContext::OpenGLVersion::openGL3_2);
+	context_.setOpenGLVersionRequired(juce::OpenGLContext::OpenGLVersion::openGL3_2);
 	context_.setRenderer(this);
 	context_.attachTo(*this);
 }
@@ -30,8 +30,9 @@ bool ShaderBasedComponent::isRunning() const
 	return isRunning_;
 }
 
-String ShaderBasedComponent::loadShader(String const &filename) {
-	File fileToRead = File::getCurrentWorkingDirectory().getChildFile(filename);
+juce::String ShaderBasedComponent::loadShader(juce::String const& filename)
+{
+	juce::File fileToRead = juce::File::getCurrentWorkingDirectory().getChildFile(filename);
 	if (!fileToRead.existsAsFile()) {
 		jassert(false);
 		return "";
@@ -39,11 +40,12 @@ String ShaderBasedComponent::loadShader(String const &filename) {
 	return fileToRead.loadFileAsString();
 }
 
-std::shared_ptr<OpenGLShaderProgram::Uniform> ShaderBasedComponent::createUniform(OpenGLContext& openGLContext, OpenGLShaderProgram& shaderProgram, const char* uniformName)
+std::shared_ptr<juce::OpenGLShaderProgram::Uniform> ShaderBasedComponent::createUniform(juce::OpenGLContext& openGLContext, juce::OpenGLShaderProgram& shaderProgram,
+    const char* uniformName)
 {
 	if (openGLContext.extensions.glGetUniformLocation(shaderProgram.getProgramID(), uniformName) < 0)
 		return nullptr;
 
-	return std::make_shared<OpenGLShaderProgram::Uniform>(shaderProgram, uniformName);
+	return std::make_shared<juce::OpenGLShaderProgram::Uniform>(shaderProgram, uniformName);
 }
 

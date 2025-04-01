@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "JuceHeader.h"
+#include <juce_core/juce_core.h>
 
 #include "Spectrogram.h"
 
@@ -33,25 +33,26 @@ public:
 	void setXAxis(bool logAxis);
 
 private:
-	std::shared_ptr<OpenGLTexture> createColorLookupTexture();
+	std::shared_ptr<juce::OpenGLTexture> createColorLookupTexture();
 	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int w, int h);
 
 	std::weak_ptr<Spectrogram> spectrogram_;
 
 	GLuint vertexBuffer_, elements_;
-	std::shared_ptr<OpenGLTexture> textureLUT_;
+	std::shared_ptr<juce::OpenGLTexture> textureLUT_;
 	std::shared_ptr<OpenGLFloatTexture> spectrumData_;
 	std::shared_ptr<OpenGLFloatTexture> spectrumHistory_;
 
-	std::unique_ptr<OpenGLShaderProgram> shader_;
-	std::shared_ptr<OpenGLShaderProgram::Uniform> resolution_, audioSampleData_, lutTexture_, waterfallTexture_, waterfallUniform_, logXAxis_, uUpperHalfPercentage_;
+	std::unique_ptr<juce::OpenGLShaderProgram> shader_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> resolution_, audioSampleData_, lutTexture_, waterfallTexture_, waterfallUniform_, logXAxis_,
+	    uUpperHalfPercentage_;
 
 	std::vector<GLfloat> fftData_; // Current line from the spectrogram
 	int waterfallPosition = 0;
 	int xLogAxis_ = 1;
 	float upperHalfPercentage_ = 0.618f;
 
-	Label statusLabel_;
+	juce::Label statusLabel_;
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpectogramWidget)
 };

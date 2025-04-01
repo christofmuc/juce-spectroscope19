@@ -6,11 +6,11 @@
 
 #pragma once
 
-#include "JuceHeader.h"
+#include <juce_core/juce_core.h>
 
 #include "OpenGLHelpers.h"
 
-class ShaderBasedComponent : public Component, public OpenGLRenderer {
+class ShaderBasedComponent : public juce::Component, public juce::OpenGLRenderer {
 public:
 	ShaderBasedComponent();
 	virtual ~ShaderBasedComponent();
@@ -18,11 +18,12 @@ public:
 	void setContinuousRedrawing(bool run);
 	bool isRunning() const;
 
-	static String loadShader(String const &filename);
-	static std::shared_ptr<OpenGLShaderProgram::Uniform> createUniform(OpenGLContext& openGLContext, OpenGLShaderProgram& shaderProgram, const char* uniformName);
+	static juce::String loadShader(juce::String const& filename);
+	static std::shared_ptr<juce::OpenGLShaderProgram::Uniform> createUniform(juce::OpenGLContext& openGLContext, juce::OpenGLShaderProgram& shaderProgram,
+	    const char* uniformName);
 
-	template <typename T>
-	static void setUniform(std::shared_ptr<OpenGLShaderProgram::Uniform> uniform, T const &value) {
+	template <typename T> static void setUniform(std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uniform, T const& value)
+	{
 		if (uniform) {
 			uniform->set(value);
 			JUCE_CHECK_OPENGL_ERROR
@@ -30,6 +31,6 @@ public:
 	}
 
 protected:
-	OpenGLContext context_;
+	juce::OpenGLContext context_;
 	bool isRunning_;
 };

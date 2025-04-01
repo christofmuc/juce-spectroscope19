@@ -6,19 +6,6 @@
 
 project(juce-spectroscope19)
 
-# Find JUCE, and add the components we need
-SET(JUCE_DIR_HINT "${CMAKE_CURRENT_LIST_DIR}/../third_party")
-find_package(JUCE REQUIRED 
-	COMPONENTS 
-		juce_core		
-		juce_events
-		juce_audio_basics
-		juce_audio_devices
-		juce_data_structures
-		juce_opengl
-		juce_dsp
-)
-
 # Load the macro to process binary resources
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
 include(BinaryResources)
@@ -47,7 +34,7 @@ set(Sources
 # Setup library
 add_library(juce-spectroscope19 ${Sources})
 target_include_directories(juce-spectroscope19 INTERFACE ${CMAKE_CURRENT_LIST_DIR} PUBLIC ${GLEW_DIRECTORY} "${asiosdk_SOURCE_DIR}/common")
-target_link_libraries(juce-spectroscope19 PRIVATE ${JUCE_LIBRARIES})
+target_link_libraries(juce-spectroscope19 PRIVATE juce-static)
 
 # Pedantic about warnings
 if (MSVC)

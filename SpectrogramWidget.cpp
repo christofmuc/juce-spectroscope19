@@ -4,17 +4,14 @@
    Dual licensed: Distributed under Affero GPL license by default, an MIT license is available for purchase
 */
 
-#include <GL/glew.h>
-
-#ifdef WIN32
-#include <GL/wglew.h>
-#endif
-
 #include "SpectrogramWidget.h"
 
 #include "OpenGLHelpers.h"
 
 #include "BinaryResources.h"
+
+using namespace juce;
+using namespace juce::gl;
 
 SpectogramWidget::SpectogramWidget(std::weak_ptr<Spectrogram> spectrogram) :
 	spectrogram_(spectrogram)
@@ -22,7 +19,7 @@ SpectogramWidget::SpectogramWidget(std::weak_ptr<Spectrogram> spectrogram) :
 	// Setup GUI Overlay Label: Status of Shaders, compiler errors, etc.
 	addAndMakeVisible(statusLabel_);
 	statusLabel_.setJustificationType(Justification::topLeft);
-	statusLabel_.setFont(Font(14.0f));
+	//statusLabel_.setFont(Font(14.0f));
 
 	if (!spectrogram_.expired()) {
 		fftData_.resize(spectrogram_.lock()->fftSize() / 2 * 512); // History of the last 512 FFTs
@@ -37,8 +34,8 @@ void SpectogramWidget::newOpenGLContextCreated()
 {
 	static bool glewInitialized = false;
 	if (!glewInitialized) {
-		GLenum err = glewInit();
-		ignoreUnused(err);
+		//GLenum err = glewInit();
+		//ignoreUnused(err);
 		glewInitialized = true;
 	}
 
@@ -47,23 +44,27 @@ void SpectogramWidget::newOpenGLContextCreated()
 
 #ifdef WIN32
 	// Try to turn on VSync, if you are on Windows and your driver supports it! I had to update my NVidia driver
-	if (WGLEW_EXT_swap_control) {
+	//if (WGLEW_EXT_swap_control) {
 		//wglSwapIntervalEXT(1);
 		JUCE_CHECK_OPENGL_ERROR
-	}
+	//}
 #endif
 	bool worked = context_.setSwapInterval(1);
 	jassert(worked);
 	ignoreUnused(worked);
 
+	JUCE_CHECK_OPENGL_ERROR
 	shader_ = std::make_unique<OpenGLShaderProgram>(context_);
+	JUCE_CHECK_OPENGL_ERROR
 
 	String statusText;
 	if (shader_->addVertexShader(vertexShader)
 		&& shader_->addFragmentShader(fragmentShader)
 		&& shader_->link())
 	{
+		JUCE_CHECK_OPENGL_ERROR
 		shader_->use();
+		JUCE_CHECK_OPENGL_ERROR
 
 		resolution_ = createUniform(context_, *shader_, "resolution");
 		waterfallUniform_ = createUniform(context_, *shader_, "waterfallPosition");
@@ -72,7 +73,7 @@ void SpectogramWidget::newOpenGLContextCreated()
 		waterfallTexture_ = createUniform(context_, *shader_, "waterfall");
 		lutTexture_ = createUniform(context_, *shader_, "lutTexture");
 		logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
-
+		JUCE_CHECK_OPENGL_ERROR
 		textureLUT_ = createColorLookupTexture();
 		if (!spectrogram_.expired()) {
 			spectrumData_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 1);
@@ -80,7 +81,7 @@ void SpectogramWidget::newOpenGLContextCreated()
 		}
 		JUCE_CHECK_OPENGL_ERROR
 
-			statusText = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
+		statusText = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
 	}
 	else
 	{
@@ -88,7 +89,9 @@ void SpectogramWidget::newOpenGLContextCreated()
 	}
 
 	context_.extensions.glGenBuffers(1, &vertexBuffer_);
+	JUCE_CHECK_OPENGL_ERROR
 	context_.extensions.glGenBuffers(1, &elements_);
+	JUCE_CHECK_OPENGL_ERROR
 
 	MessageManager::callAsync([this, statusText]() {
 		statusLabel_.setText(statusText, dontSendNotification);
@@ -129,11 +132,11 @@ std::shared_ptr<OpenGLTexture> SpectogramWidget::createColorLookupTexture() {
 	}
 	texture->bind();
 	JUCE_CHECK_OPENGL_ERROR
-		texture->loadARGB(pixels, 256, 1);
+	texture->loadARGB(pixels, 256, 1);
 	JUCE_CHECK_OPENGL_ERROR
-		texture->unbind();
+	texture->unbind();
 	JUCE_CHECK_OPENGL_ERROR
-		return texture;
+	return texture;
 }
 
 std::shared_ptr<OpenGLFloatTexture> SpectogramWidget::createDataTexture(int w, int h) {
@@ -145,7 +148,7 @@ std::shared_ptr<OpenGLFloatTexture> SpectogramWidget::createDataTexture(int w, i
 	delete emptyPixels;
 	texture->unbind();
 	JUCE_CHECK_OPENGL_ERROR
-		return texture;
+	return texture;
 }
 
 void SpectogramWidget::renderOpenGL()
@@ -157,9 +160,13 @@ void SpectogramWidget::renderOpenGL()
 
 	OpenGLHelpers::clear(getLookAndFeel().findColour(ResizableWindow::backgroundColourId));
 
+	JUCE_CHECK_OPENGL_ERROR
 	glEnable(GL_BLEND);
+	JUCE_CHECK_OPENGL_ERROR
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glEnable(GL_TEXTURE_2D);
+	JUCE_CHECK_OPENGL_ERROR
+	//glEnable(GL_TEXTURE_2D);
+	//JUCE_CHECK_OPENGL_ERROR
 
 	shader_->use();
 
@@ -167,7 +174,7 @@ void SpectogramWidget::renderOpenGL()
 	resolution_->set((GLfloat)renderingScale * getWidth(), (GLfloat)renderingScale * getHeight());
 	JUCE_CHECK_OPENGL_ERROR
 
-		setUniform(lutTexture_, 0);
+	setUniform(lutTexture_, 0);
 	setUniform(logXAxis_, xLogAxis_);
 	setUniform(waterfallUniform_, waterfallPosition / 512.0f);
 	setUniform(uUpperHalfPercentage_, upperHalfPercentage_);

@@ -19,7 +19,7 @@ Spectrogram::Spectrogram(std::function<void()> updateCallback) :
 	fifo_(2, kFFTSize * 4),
 	readBuffer_(2, kRingBufferReadSize),
 	forwardFFT_(kFFTOrder),
-	window_(kWindowSize, dsp::WindowingFunction<float>::hann, true),
+	window_(kWindowSize, juce::dsp::WindowingFunction<float>::hann, true),
 	updateCallback_(updateCallback),
 	inputDataAvailable_(0)
 {
@@ -46,14 +46,14 @@ int Spectrogram::fftSize() const
 	return kFFTSize;
 }
 
-void Spectrogram::newData(const AudioSourceChannelInfo& data)
+void Spectrogram::newData(const juce::AudioSourceChannelInfo& data)
 {
 	fifo_.addToFifo(data);
 
 	// Check if there is enough data available for the next block
 	if (fifo_.availableSamples() >= kHopSize) {
 		prepareBufferForSpectrum();
-		MessageManager::callAsync([this]() {
+		juce::MessageManager::callAsync([this]() {
 			updateCallback_();
 		});
 	}
@@ -61,7 +61,7 @@ void Spectrogram::newData(const AudioSourceChannelInfo& data)
 
 void Spectrogram::getData(float *out)
 {
-	ScopedLock sl(lock);
+	juce::ScopedLock sl(lock);
 	std::copy(fft_.data(), fft_.data() + kFFTSize / 2, out);
 }
 
@@ -80,7 +80,7 @@ void Spectrogram::prepareBufferForSpectrum()
 		// Not enough data, append newest hop and return to wait for new data
 		for (int i = 0; i < 1 /*readBuffer_.getNumChannels()*/; ++i)
 		{
-			FloatVectorOperations::add(inputData_.data() + inputDataAvailable_, readBuffer_.getReadPointer(i, 0), kHopSize);
+			juce::FloatVectorOperations::add(inputData_.data() + inputDataAvailable_, readBuffer_.getReadPointer(i, 0), kHopSize);
 		}
 		inputDataAvailable_ += kHopSize;
 		return;
@@ -95,7 +95,7 @@ void Spectrogram::prepareBufferForSpectrum()
 	
 	for (int i = 0; i < 1 /*readBuffer_.getNumChannels()*/; ++i)
 	{
-		FloatVectorOperations::add(inputData_.data() + kFFTSize - kHopSize, readBuffer_.getReadPointer(i, 0), kHopSize);
+		juce::FloatVectorOperations::add(inputData_.data() + kFFTSize - kHopSize, readBuffer_.getReadPointer(i, 0), kHopSize);
 	}
 	//FloatVectorOperations::multiply(&fftData_[0], 1.0f/readBuffer_.getNumChannels(), (int) kFFTSize);
 
@@ -113,10 +113,10 @@ void Spectrogram::prepareBufferForSpectrum()
 	//FloatVectorOperations::multiply(windowedData_.data(), 1.0f / sum_, kWindowSize);
 
 	// Lock the FFT data section
-	ScopedLock sl(lock);
+	juce::ScopedLock sl(lock);
 
 	// Zero-phase windowing
-	FloatVectorOperations::clear(fft_.data(), kFFTSize * 2);
+	juce::FloatVectorOperations::clear(fft_.data(), kFFTSize * 2);
 	for (int i = 0; i < hM1; i++) fft_[i] = windowedData_[hM2 + i];
 	for (int i = 0; i < hM2; i++) fft_[kFFTSize - hM2 + i] = windowedData_[i];
 
@@ -131,7 +131,7 @@ void Spectrogram::prepareBufferForSpectrum()
 	for (int i = 0; i < kFFTSize / 2; i++) {
 		fft_[i] = std::log10(fft_[i]);
 	}
-	FloatVectorOperations::multiply(fft_.data(), 20.0f, kFFTSize / 2);
+	juce::FloatVectorOperations::multiply(fft_.data(), 20.0f, kFFTSize / 2);
 
 	float max = -100.0;
 	for (float f : fft_) if (f > max) max = f;
