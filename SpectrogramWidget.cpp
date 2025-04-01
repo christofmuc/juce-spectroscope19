@@ -39,8 +39,17 @@ void SpectogramWidget::newOpenGLContextCreated()
 		glewInitialized = true;
 	}
 
-	std::string vertexShader((const char *)oscilloscope_vert_glsl, oscilloscope_vert_glsl_size);
-	std::string fragmentShader((const char *)oscilloscope_frag_glsl, oscilloscope_frag_glsl_size);
+	std::string vertexShader;
+	std::string fragmentShader;
+
+	//if (GLEW_VERSION_3_0) {
+		vertexShader = std::string((const char *)oscilloscope_vert_glsl, oscilloscope_vert_glsl_size);
+		fragmentShader = std::string((const char *)oscilloscope_frag_glsl, oscilloscope_frag_glsl_size);
+    /*}
+	else {
+		std::cerr << "System does not support OpenGL 3.0, fatal!" << std::endl;
+		exit(-1);
+	}*/
 
 #ifdef WIN32
 	// Try to turn on VSync, if you are on Windows and your driver supports it! I had to update my NVidia driver
@@ -73,7 +82,9 @@ void SpectogramWidget::newOpenGLContextCreated()
 		waterfallTexture_ = createUniform(context_, *shader_, "waterfall");
 		lutTexture_ = createUniform(context_, *shader_, "lutTexture");
 		logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
+		uHorizontal_ = createUniform(context_, *shader_, "horizontalMode");
 		JUCE_CHECK_OPENGL_ERROR
+
 		textureLUT_ = createColorLookupTexture();
 		if (!spectrogram_.expired()) {
 			spectrumData_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 1);
@@ -176,6 +187,7 @@ void SpectogramWidget::renderOpenGL()
 
 	setUniform(lutTexture_, 0);
 	setUniform(logXAxis_, xLogAxis_);
+	setUniform(uHorizontal_, horizontal_);
 	setUniform(waterfallUniform_, waterfallPosition / 512.0f);
 	setUniform(uUpperHalfPercentage_, upperHalfPercentage_);
 	setUniform(audioSampleData_, 1);
@@ -186,18 +198,18 @@ void SpectogramWidget::renderOpenGL()
 	textureLUT_->bind();
 	JUCE_CHECK_OPENGL_ERROR
 
-		context_.extensions.glActiveTexture(GL_TEXTURE1);
+	context_.extensions.glActiveTexture(GL_TEXTURE1);
 	spectrumData_->bind();
 	JUCE_CHECK_OPENGL_ERROR
 
-		context_.extensions.glActiveTexture(GL_TEXTURE2);
+	context_.extensions.glActiveTexture(GL_TEXTURE2);
 	spectrumHistory_->bind();
 	JUCE_CHECK_OPENGL_ERROR
 
-		if (!spectrogram_.expired() && fftData_.size() >= spectrogram_.lock()->fftSize() / 2) {
-			spectrumData_->load(fftData_.data() + waterfallPosition * spectrogram_.lock()->fftSize() / 2, spectrogram_.lock()->fftSize() / 2, 1);
-			spectrumHistory_->load(fftData_.data(), spectrogram_.lock()->fftSize() / 2, 512);
-		}
+	if (!spectrogram_.expired() && fftData_.size() >= spectrogram_.lock()->fftSize() / 2) {
+		spectrumData_->load(fftData_.data() + waterfallPosition * spectrogram_.lock()->fftSize() / 2, spectrogram_.lock()->fftSize() / 2, 1);
+		spectrumHistory_->load(fftData_.data(), spectrogram_.lock()->fftSize() / 2, 512);
+	}
 
 	// Read a block that is big enough so we can fill our viewport with a triggered wave of the latest acquired audio
 	// Define Vertices for a Square (the view plane)
@@ -255,5 +267,10 @@ void SpectogramWidget::refreshData()
 void SpectogramWidget::setXAxis(bool logAxis)
 {
 	xLogAxis_ = logAxis ? 1 : 0;
+}
+
+void SpectogramWidget::setHorizontalMode(bool horizontal)
+{
+	horizontal_ = horizontal ? 1 : 0;
 }
 

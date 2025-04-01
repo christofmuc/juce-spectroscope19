@@ -31,6 +31,7 @@ public:
 
 	// Settings
 	void setXAxis(bool logAxis);
+	void setHorizontalMode(bool horizontal);
 
 private:
 	std::shared_ptr<juce::OpenGLTexture> createColorLookupTexture();
@@ -44,12 +45,12 @@ private:
 	std::shared_ptr<OpenGLFloatTexture> spectrumHistory_;
 
 	std::unique_ptr<juce::OpenGLShaderProgram> shader_;
-	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> resolution_, audioSampleData_, lutTexture_, waterfallTexture_, waterfallUniform_, logXAxis_,
-	    uUpperHalfPercentage_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> resolution_, audioSampleData_, lutTexture_, waterfallTexture_, waterfallUniform_, logXAxis_, uUpperHalfPercentage_, uHorizontal_;
 
 	std::vector<GLfloat> fftData_; // Current line from the spectrogram
 	int waterfallPosition = 0;
 	int xLogAxis_ = 1;
+	int horizontal_ = 0;
 	float upperHalfPercentage_ = 0.618f;
 
 	juce::Label statusLabel_;
