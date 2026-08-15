@@ -62,6 +62,7 @@ private:
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uPitchColourMode_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uSampleRate_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uConcertAHz_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uMinimumFrequencyHz_;
 
 	std::vector<GLfloat> fftData_;
 	std::vector<GLfloat> pendingSpectra_;

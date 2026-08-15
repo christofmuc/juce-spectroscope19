@@ -15,18 +15,25 @@ uniform float waterfallPosition;
 uniform float upperHalfPercentage;
 uniform float sampleRate;
 uniform float concertAHz;
+uniform float minimumFrequencyHz;
 uniform sampler2D audioSampleData;
 uniform sampler2D lutTexture; 
 uniform sampler2D waterfall; 
 
 out vec4 fragmentColour;
 
-float logXAxis(float x) {
-	return 1.0f - exp(log(1.0f - x / resolution.x) * 0.2f);
-}
+float frequencyPosition(float axisPosition) {
+	float normalisedPosition = clamp(axisPosition, 0.0f, 1.0f);
+	if (xAxisLog == 0)
+		return normalisedPosition;
 
-float linearXAxis(float x) {
-	return x / resolution.x;
+	float nyquist = sampleRate * 0.5f;
+	if (nyquist <= 0.0f)
+		return normalisedPosition;
+
+	float minimumFrequency = clamp(minimumFrequencyHz, 0.001f, nyquist);
+	float frequency = minimumFrequency * pow(nyquist / minimumFrequency, normalisedPosition);
+	return frequency / nyquist;
 }
 
 vec3 hsvToRgb(vec3 hsv) {
@@ -65,20 +72,13 @@ void main()
 
 	if (horizontalMode == 1) {
 		// Horizontal Mode
-		float x = linearXAxis(gl_FragCoord.x);
-		if (xAxisLog == 1) {
-		  y = 	1.0f - exp(log(1.0f - y) * 0.2f);
-		}
-		float value = texture(waterfall, vec2(y, (x + waterfallPosition))).r;
-		fragmentColour = spectrumColour(value, y);
+		float x = gl_FragCoord.x / resolution.x;
+		float frequency = frequencyPosition(y);
+		float value = texture(waterfall, vec2(frequency, (x + waterfallPosition))).r;
+		fragmentColour = spectrumColour(value, frequency);
 	} else {
 		// Vertical Mode
-		float x;
-		if (xAxisLog == 1) {
-			x = logXAxis(gl_FragCoord.x);
-		} else {
-			x = linearXAxis(gl_FragCoord.x);
-		}
+		float x = frequencyPosition(gl_FragCoord.x / resolution.x);
 
 		float amplitude = texture(audioSampleData, vec2(x, 0.0)).r;
 		float amplitudeNormalised = clamp(1.0f + amplitude / 100.0f, 0.0f, 1.0f);

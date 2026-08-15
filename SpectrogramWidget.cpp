@@ -69,6 +69,7 @@ void SpectrogramWidget::newOpenGLContextCreated()
 	uPitchColourMode_ = createUniform(context_, *shader_, "pitchColourMode");
 	uSampleRate_ = createUniform(context_, *shader_, "sampleRate");
 	uConcertAHz_ = createUniform(context_, *shader_, "concertAHz");
+	uMinimumFrequencyHz_ = createUniform(context_, *shader_, "minimumFrequencyHz");
 
 	const auto analyzer = spectrogram_.lock();
 	const auto invalidAttribute = position_ == nullptr
@@ -77,7 +78,8 @@ void SpectrogramWidget::newOpenGLContextCreated()
 		|| uUpperHalfPercentage_ == nullptr || audioSampleData_ == nullptr
 		|| waterfallTexture_ == nullptr || lutTexture_ == nullptr
 		|| logXAxis_ == nullptr || uHorizontal_ == nullptr
-		|| uPitchColourMode_ == nullptr || uSampleRate_ == nullptr || uConcertAHz_ == nullptr;
+		|| uPitchColourMode_ == nullptr || uSampleRate_ == nullptr || uConcertAHz_ == nullptr
+		|| uMinimumFrequencyHz_ == nullptr;
 	if (analyzer == nullptr || invalidAttribute || missingUniform) {
 		publishStatus(analyzer == nullptr ? "Spectrum analyzer unavailable"
 			: "Spectrogram shader interface is incomplete");
@@ -158,10 +160,14 @@ void SpectrogramWidget::renderOpenGL()
 	setUniform(audioSampleData_, 1);
 	setUniform(waterfallTexture_, 2);
 	setUniform(uConcertAHz_, concertAHz_.load(std::memory_order_relaxed));
-	if (const auto analyzer = spectrogram_.lock())
+	if (const auto analyzer = spectrogram_.lock()) {
 		setUniform(uSampleRate_, static_cast<float>(analyzer->sampleRate()));
-	else
+		setUniform(uMinimumFrequencyHz_, static_cast<float>(
+			analyzer->sampleRate() / static_cast<double>(analyzer->fftSize())));
+	} else {
 		setUniform(uSampleRate_, 0.0f);
+		setUniform(uMinimumFrequencyHz_, 1.0f);
+	}
 
 	context_.extensions.glActiveTexture(GL_TEXTURE0);
 	textureLUT_->bind();
@@ -288,6 +294,7 @@ void SpectrogramWidget::releaseOpenGLResources()
 	uPitchColourMode_.reset();
 	uSampleRate_.reset();
 	uConcertAHz_.reset();
+	uMinimumFrequencyHz_.reset();
 	shader_.reset();
 }
 
