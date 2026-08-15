@@ -72,6 +72,7 @@ ctest --test-dir build --output-on-failure
 - **Log frequency** switches between a true logarithmic frequency axis and linear mapping. The logarithmic axis runs from the first usable FFT bin to Nyquist, giving every octave equal screen space.
 - **Horizontal history** changes the waterfall orientation.
 - **Pitch colours** keeps the full FFT in greyscale and overlays stable tracked notes using their position on the circle of fifths. Colour saturation still falls continuously from a note centre to neutral grey at the midpoint between neighbouring notes.
+- **Tracked notes** shows an optional diagnostic list of the strongest inferred fundamentals as note name, signed cents relative to the current A4 reference, and confidence. For example, `F2 +14.0 ct   70%` follows the JammerNetz tuner convention.
 - **A4 reference** sets the tuning reference from 415 Hz to 466 Hz. For example, set it to 444 Hz when analysing an ensemble tuned to A4 = 444 Hz.
 
 Pitch analysis runs beside the FFT on the analysis worker. A bank of 144 logarithmic resonators covers six octaves at 24 bins per octave. Each resonator integrates approximately six cycles, balancing semitone separation against arpeggio response; onset time therefore decreases with frequency. Local maxima are measured against adaptive signal and noise levels, interpolated between bins, and associated over time. Peaks explained as integer harmonics of a lower tracked fundamental are removed from the colour mask. Every FFT history row has a synchronized 256-sample absolute log-frequency confidence row.

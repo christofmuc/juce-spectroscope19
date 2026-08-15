@@ -109,6 +109,7 @@ add_library(juce-spectroscope-analysis STATIC
 	PitchTracker.h
 	Spectrogram.cpp
 	Spectrogram.h
+	TrackedPitch.h
 )
 target_include_directories(juce-spectroscope-analysis PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
 target_link_libraries(juce-spectroscope-analysis PUBLIC juce-static)

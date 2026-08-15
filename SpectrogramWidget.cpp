@@ -8,6 +8,7 @@
 
 #include "BinaryResources.h"
 #include "OpenGLHelpers.h"
+#include "TrackedPitch.h"
 #include "WaterfallTimeline.h"
 
 #include <algorithm>
@@ -35,6 +36,11 @@ SpectrogramWidget::SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram)
 {
 	addAndMakeVisible(statusLabel_);
 	statusLabel_.setJustificationType(Justification::topLeft);
+	addChildComponent(trackedNotesLabel_);
+	trackedNotesLabel_.setJustificationType(Justification::topRight);
+	trackedNotesLabel_.setColour(Label::backgroundColourId, Colours::black.withAlpha(0.65f));
+	trackedNotesLabel_.setColour(Label::textColourId, Colours::white);
+	trackedNotesLabel_.setInterceptsMouseClicks(false, false);
 
 	if (const auto analyzer = spectrogram_.lock()) {
 		fftData_.resize(static_cast<size_t>(analyzer->spectrumSize() * waterfallRows), analyzer->floorDb());
@@ -293,6 +299,7 @@ void SpectrogramWidget::renderOpenGL()
 void SpectrogramWidget::resized()
 {
 	statusLabel_.setBounds(getLocalBounds().reduced(4).removeFromTop(75));
+	trackedNotesLabel_.setBounds(getLocalBounds().reduced(8).removeFromRight(230).removeFromTop(150));
 	context_.triggerRepaint();
 }
 
@@ -320,6 +327,13 @@ void SpectrogramWidget::setPitchColourMode(bool enabled)
 	context_.triggerRepaint();
 }
 
+void SpectrogramWidget::setTrackedNoteOverlayEnabled(bool enabled)
+{
+	trackedNoteOverlayEnabled_.store(enabled, std::memory_order_relaxed);
+	trackedNotesLabel_.setVisible(enabled);
+	refreshData();
+}
+
 void SpectrogramWidget::setConcertAHz(float frequencyHz)
 {
 	const auto clampedFrequency = juce::jlimit(400.0f, 480.0f, frequencyHz);
@@ -341,6 +355,54 @@ void SpectrogramWidget::publishStatus(String statusText)
 		if (safeThis != nullptr)
 			safeThis->statusLabel_.setText(std::move(statusTextToPublish), dontSendNotification);
 	});
+}
+
+void SpectrogramWidget::publishTrackedNoteText(String noteText)
+{
+	Component::SafePointer<SpectrogramWidget> safeThis(this);
+	MessageManager::callAsync([safeThis, textToPublish = std::move(noteText)]() mutable {
+		if (safeThis != nullptr && safeThis->trackedNoteOverlayEnabled_.load(std::memory_order_relaxed))
+			safeThis->trackedNotesLabel_.setText(std::move(textToPublish), dontSendNotification);
+	});
+}
+
+void SpectrogramWidget::updateTrackedNoteOverlay(const Spectrogram& analyzer)
+{
+	if (!trackedNoteOverlayEnabled_.load(std::memory_order_relaxed))
+		return;
+
+	const auto nowMs = Time::getMillisecondCounterHiRes();
+	if (nowMs < nextTrackedNoteUpdateMs_)
+		return;
+	nextTrackedNoteUpdateMs_ = nowMs + 100.0;
+
+	constexpr int maximumDisplayedNotes = 6;
+	std::array<spectroscope::TrackedPitch, maximumDisplayedNotes> notes {};
+	const auto rowOffset = static_cast<size_t>(waterfallPosition_ * analyzer.pitchClassSize());
+	const auto noteCount = spectroscope::extractTrackedPitches(
+		pitchClassDataHistory_.data() + rowOffset, analyzer.pitchClassSize(),
+		concertAHz_.load(std::memory_order_relaxed), notes.data(), maximumDisplayedNotes);
+
+	String text;
+	if (noteCount == 0) {
+		text = "No stable notes";
+	} else {
+		for (int index = 0; index < noteCount; ++index) {
+			const auto& note = notes[static_cast<std::size_t>(index)];
+			const auto noteName = MidiMessage::getMidiNoteName(note.midiNote, true, true, 4);
+			const auto cents = std::abs(note.cents) < 0.05f ? 0.0f : note.cents;
+			const auto confidencePercent = 5 * roundToInt(note.confidence * 20.0f);
+			if (index > 0)
+				text << '\n';
+			text << noteName << " " << (cents >= 0.0f ? "+" : "")
+				<< String(cents, 1) << " ct   " << confidencePercent << "%";
+		}
+	}
+
+	if (text != lastTrackedNoteText_) {
+		lastTrackedNoteText_ = text;
+		publishTrackedNoteText(std::move(text));
+	}
 }
 
 void SpectrogramWidget::releaseOpenGLResources()
@@ -426,5 +488,6 @@ int SpectrogramWidget::pullAvailableFrames()
 	}
 
 	lastSequence_ = copiedSequence;
+	updateTrackedNoteOverlay(*analyzer);
 	return copiedRows;
 }

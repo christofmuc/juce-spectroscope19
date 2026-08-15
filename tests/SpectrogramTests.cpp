@@ -1,5 +1,6 @@
 #include "PitchTracker.h"
 #include "Spectrogram.h"
+#include "TrackedPitch.h"
 #include "WaterfallTimeline.h"
 
 #include <algorithm>
@@ -206,6 +207,36 @@ bool testPitchTrackerDetectionLatency()
 			"A3 should become visible within 54 ms (took " + std::to_string(a3Blocks) + " hops)")
 		&& expect(a4Blocks <= 4,
 			"A4 should become visible within 43 ms (took " + std::to_string(a4Blocks) + " hops)");
+}
+
+bool testTrackedPitchMusicalValues()
+{
+	constexpr double concertA = 440.0;
+	constexpr double frequency = 445.0;
+	PitchTracker tracker;
+	tracker.prepare(48000.0, static_cast<float>(concertA));
+	std::vector<float> field(PitchTracker::outputBinCount);
+	processPitchSignal(tracker, { frequency }, 80, field);
+
+	std::array<spectroscope::TrackedPitch, 6> notes {};
+	const auto noteCount = spectroscope::extractTrackedPitches(field.data(),
+		static_cast<int>(field.size()), static_cast<float>(concertA),
+		notes.data(), static_cast<int>(notes.size()));
+	const auto fieldConfidence = *std::max_element(field.begin(), field.end());
+	if (!expect(noteCount > 0,
+		"a visible tracked field should expose musical note diagnostics (field confidence "
+			+ std::to_string(fieldConfidence) + ")")) {
+		return false;
+	}
+
+	const auto note = *std::max_element(notes.begin(), notes.begin() + noteCount,
+		[](const auto& first, const auto& second) {
+			return first.confidence < second.confidence;
+		});
+	const auto expectedCents = static_cast<float>(1200.0 * std::log2(frequency / concertA));
+	return expect(note.midiNote == 69, "445 Hz at A4=440 should be displayed as A4")
+		&& expect(std::abs(note.cents - expectedCents) < 3.0f,
+			"tracked-note diagnostics should retain sub-semitone cents accuracy");
 }
 
 bool testPitchTrackerChordAndRelease()
@@ -502,6 +533,7 @@ bool testWaterfallTimelineMapping()
 int main()
 {
 	const auto passed = testPitchTrackerStablePitchAndDetuning() && testPitchTrackerDetectionLatency()
+		&& testTrackedPitchMusicalValues()
 		&& testPitchTrackerChordAndRelease()
 		&& testPitchTrackerHarmonicMusicalTone()
 		&& testPitchTrackerRejectsBroadbandNoise()

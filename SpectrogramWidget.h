@@ -33,6 +33,7 @@ public:
 	void setXAxis(bool logAxis);
 	void setHorizontalMode(bool horizontal);
 	void setPitchColourMode(bool enabled);
+	void setTrackedNoteOverlayEnabled(bool enabled);
 	void setConcertAHz(float frequencyHz);
 	bool isOpenGLReady() const noexcept;
 
@@ -40,6 +41,8 @@ private:
 	std::shared_ptr<juce::OpenGLTexture> createColorLookupTexture();
 	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int width, int height, float initialValue);
 	void publishStatus(juce::String statusText);
+	void publishTrackedNoteText(juce::String noteText);
+	void updateTrackedNoteOverlay(const Spectrogram& analyzer);
 	void releaseOpenGLResources();
 	int pullAvailableFrames();
 
@@ -83,11 +86,15 @@ private:
 	std::atomic<bool> xLogAxis_ { true };
 	std::atomic<bool> horizontal_ { false };
 	std::atomic<bool> pitchColourMode_ { false };
+	std::atomic<bool> trackedNoteOverlayEnabled_ { false };
 	std::atomic<float> concertAHz_ { 440.0f };
 	float upperHalfPercentage_ { 0.618f };
 	std::atomic<bool> openGLReady_ { false };
+	double nextTrackedNoteUpdateMs_ { 0.0 };
+	juce::String lastTrackedNoteText_;
 
 	juce::Label statusLabel_;
+	juce::Label trackedNotesLabel_;
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpectrogramWidget)
 };

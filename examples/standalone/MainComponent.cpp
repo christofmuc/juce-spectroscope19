@@ -108,6 +108,7 @@ MainComponent::MainComponent(bool startAudio)
 	addAndMakeVisible(logarithmicButton_);
 	addAndMakeVisible(horizontalButton_);
 	addAndMakeVisible(pitchColourButton_);
+	addAndMakeVisible(trackedNotesButton_);
 	addAndMakeVisible(concertALabel_);
 	addAndMakeVisible(concertASlider_);
 	addAndMakeVisible(statusLabel_);
@@ -137,6 +138,9 @@ MainComponent::MainComponent(bool startAudio)
 	};
 	pitchColourButton_.onClick = [this] {
 		spectrogram_.setPitchColourMode(pitchColourButton_.getToggleState());
+	};
+	trackedNotesButton_.onClick = [this] {
+		spectrogram_.setTrackedNoteOverlayEnabled(trackedNotesButton_.getToggleState());
 	};
 	concertASlider_.onValueChange = [this] {
 		spectrogram_.setConcertAHz(static_cast<float>(concertASlider_.getValue()));
@@ -189,6 +193,7 @@ void MainComponent::resized()
 	logarithmicButton_.setBounds(firstRow.removeFromLeft(130));
 	horizontalButton_.setBounds(firstRow.removeFromLeft(160));
 	pitchColourButton_.setBounds(firstRow.removeFromLeft(130));
+	trackedNotesButton_.setBounds(firstRow.removeFromLeft(130));
 	statusLabel_.setBounds(firstRow);
 	concertALabel_.setBounds(secondRow.removeFromLeft(100));
 	concertASlider_.setBounds(secondRow.removeFromLeft(220));

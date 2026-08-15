@@ -71,6 +71,7 @@ private:
 	juce::ToggleButton logarithmicButton_ { "Log frequency" };
 	juce::ToggleButton horizontalButton_ { "Horizontal history" };
 	juce::ToggleButton pitchColourButton_ { "Pitch colours" };
+	juce::ToggleButton trackedNotesButton_ { "Tracked notes" };
 	juce::Label concertALabel_;
 	juce::Slider concertASlider_;
 	juce::Label statusLabel_;
