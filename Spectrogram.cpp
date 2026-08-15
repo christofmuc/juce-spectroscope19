@@ -132,7 +132,9 @@ bool Spectrogram::copyLatestSpectrum(float* destination, int destinationSize, st
 
 	const auto row = static_cast<size_t>((currentSequence - 1)
 		% static_cast<std::uint64_t>(spectrumHistoryCapacity));
-	const auto rowStart = publishedSpectra_.begin() + static_cast<std::ptrdiff_t>(row * spectrumSize());
+	const auto rowStride = static_cast<size_t>(spectrumSize());
+	const auto rowStart = publishedSpectra_.begin()
+		+ static_cast<std::ptrdiff_t>(row * rowStride);
 	std::copy_n(rowStart, spectrumSize(), destination);
 	if (copiedSequence != nullptr)
 		*copiedSequence = currentSequence;
@@ -160,12 +162,13 @@ int Spectrogram::copySpectrumFramesAfter(std::uint64_t afterSequence, float* des
 		firstSequence = newestSequence - static_cast<std::uint64_t>(destinationRows) + 1;
 
 	const auto copiedRows = static_cast<int>(newestSequence - firstSequence + 1);
+	const auto rowStride = static_cast<size_t>(spectrumSize());
 	for (int destinationRow = 0; destinationRow < copiedRows; ++destinationRow) {
 		const auto sourceSequence = firstSequence + static_cast<std::uint64_t>(destinationRow);
 		const auto sourceRow = static_cast<size_t>((sourceSequence - 1)
 			% static_cast<std::uint64_t>(spectrumHistoryCapacity));
 		const auto source = publishedSpectra_.begin()
-			+ static_cast<std::ptrdiff_t>(sourceRow * spectrumSize());
+			+ static_cast<std::ptrdiff_t>(sourceRow * rowStride);
 		std::copy_n(source, spectrumSize(), destination + destinationRow * spectrumSize());
 	}
 
@@ -275,8 +278,9 @@ void Spectrogram::calculateSpectrum()
 		const auto nextSequence = sequence_.load(std::memory_order_relaxed) + 1;
 		const auto destinationRow = static_cast<size_t>((nextSequence - 1)
 			% static_cast<std::uint64_t>(spectrumHistoryCapacity));
+		const auto rowStride = static_cast<size_t>(spectrumSize());
 		auto destination = publishedSpectra_.begin()
-			+ static_cast<std::ptrdiff_t>(destinationRow * spectrumSize());
+			+ static_cast<std::ptrdiff_t>(destinationRow * rowStride);
 		std::copy(nextSpectrum_.begin(), nextSpectrum_.end(), destination);
 		sequence_.store(nextSequence, std::memory_order_release);
 	}

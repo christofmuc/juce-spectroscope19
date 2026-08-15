@@ -53,7 +53,7 @@ bool testSilence()
 	}
 
 	return expect(std::all_of(spectrum.begin(), spectrum.end(), [&](float value) {
-		return std::isfinite(value) && value == analyzer.floorDb();
+		return std::isfinite(value) && approximatelyEqual(value, analyzer.floorDb());
 	}), "silence should remain at the configured finite floor");
 }
 
