@@ -13,6 +13,7 @@
 #include "Spectrogram.h"
 
 #include <atomic>
+#include <array>
 #include <cstdint>
 
 class SpectrogramWidget final : public ShaderBasedComponent {
@@ -38,7 +39,7 @@ private:
 	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int width, int height, float initialValue);
 	void publishStatus(juce::String statusText);
 	void releaseOpenGLResources();
-	bool pullLatestSpectrum();
+	int pullAvailableSpectra();
 
 	std::weak_ptr<Spectrogram> spectrogram_;
 
@@ -63,6 +64,8 @@ private:
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uConcertAHz_;
 
 	std::vector<GLfloat> fftData_;
+	std::vector<GLfloat> pendingSpectra_;
+	std::array<int, 32> pendingTextureRows_ {};
 	int waterfallPosition_ { 0 };
 	std::uint64_t lastSequence_ { 0 };
 	std::atomic<bool> refreshRequested_ { true };

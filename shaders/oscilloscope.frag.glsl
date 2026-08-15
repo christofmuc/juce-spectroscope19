@@ -53,9 +53,9 @@ vec4 spectrumColour(float decibels, float frequencyPosition) {
 	float fifthIndex = mod(pitchClass * 7.0f, 12.0f);
 	float hue = fifthIndex / 12.0f;
 
-	// Frequencies close to a tempered note centre carry its hue. Ambiguous or
-	// out-of-tune frequencies fade to grey before the neighbouring note centre.
-	float saturation = 1.0f - smoothstep(10.0f, 35.0f, centsFromNote);
+	// Colour falls continuously from a tempered note centre to neutral grey at
+	// the midpoint between notes. The peak position shows whether it is flat or sharp.
+	float saturation = clamp(1.0f - centsFromNote / 50.0f, 0.0f, 1.0f);
 	return vec4(hsvToRgb(vec3(hue, saturation, intensity)), 1.0f);
 }
 

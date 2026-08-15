@@ -16,6 +16,7 @@ using namespace juce::gl;
 
 namespace {
 constexpr int waterfallRows = 512;
+constexpr int maximumRowsPerRefresh = 32;
 }
 
 SpectrogramWidget::SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram)
@@ -26,6 +27,8 @@ SpectrogramWidget::SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram)
 
 	if (const auto analyzer = spectrogram_.lock()) {
 		fftData_.resize(static_cast<size_t>(analyzer->spectrumSize() * waterfallRows), analyzer->floorDb());
+		pendingSpectra_.resize(
+			static_cast<size_t>(analyzer->spectrumSize() * maximumRowsPerRefresh), analyzer->floorDb());
 	} else {
 		statusLabel_.setText("Spectrum analyzer unavailable", dontSendNotification);
 	}
@@ -140,8 +143,9 @@ void SpectrogramWidget::renderOpenGL()
 	if (!openGLReady_ || shader_ == nullptr || position_ == nullptr)
 		return;
 
-	const auto spectrumUpdated = refreshRequested_.exchange(false, std::memory_order_acq_rel)
-		&& pullLatestSpectrum();
+	int spectraUpdated = 0;
+	if (refreshRequested_.exchange(false, std::memory_order_acq_rel))
+		spectraUpdated = pullAvailableSpectra();
 
 	shader_->use();
 	resolution_->set(renderingScale * static_cast<float>(getWidth()), renderingScale * static_cast<float>(getHeight()));
@@ -167,11 +171,16 @@ void SpectrogramWidget::renderOpenGL()
 	spectrumHistory_->bind();
 
 	if (const auto analyzer = spectrogram_.lock()) {
-		if (spectrumUpdated) {
-			const auto rowOffset = static_cast<size_t>(waterfallPosition_ * analyzer->spectrumSize());
-			const auto* rowData = fftData_.data() + rowOffset;
-			spectrumData_->load(rowData, analyzer->spectrumSize(), 1);
-			spectrumHistory_->load(rowData, analyzer->spectrumSize(), 1, waterfallPosition_);
+		if (spectraUpdated > 0) {
+			for (int pendingRow = 0; pendingRow < spectraUpdated; ++pendingRow) {
+				const auto textureRow = pendingTextureRows_[static_cast<size_t>(pendingRow)];
+				const auto rowOffset = static_cast<size_t>(textureRow * analyzer->spectrumSize());
+				const auto* rowData = fftData_.data() + rowOffset;
+				spectrumHistory_->load(rowData, analyzer->spectrumSize(), 1, textureRow);
+			}
+
+			const auto latestRowOffset = static_cast<size_t>(waterfallPosition_ * analyzer->spectrumSize());
+			spectrumData_->load(fftData_.data() + latestRowOffset, analyzer->spectrumSize(), 1);
 		}
 	}
 
@@ -282,21 +291,33 @@ void SpectrogramWidget::releaseOpenGLResources()
 	shader_.reset();
 }
 
-bool SpectrogramWidget::pullLatestSpectrum()
+int SpectrogramWidget::pullAvailableSpectra()
 {
 	const auto analyzer = spectrogram_.lock();
-	if (analyzer == nullptr || analyzer->sequence() == lastSequence_)
-		return false;
+	if (analyzer == nullptr)
+		return 0;
 
-	const auto nextRow = (waterfallPosition_ + 1) % waterfallRows;
+	const auto currentSequence = analyzer->sequence();
+	if (currentSequence < lastSequence_)
+		lastSequence_ = 0;
+	if (currentSequence == lastSequence_)
+		return 0;
+
 	std::uint64_t copiedSequence = 0;
-	if (!analyzer->copyLatestSpectrum(
-		fftData_.data() + static_cast<size_t>(nextRow * analyzer->spectrumSize()),
-		analyzer->spectrumSize(), &copiedSequence)) {
-		return false;
+	const auto copiedRows = analyzer->copySpectrumFramesAfter(lastSequence_, pendingSpectra_.data(),
+		static_cast<int>(pendingSpectra_.size()), &copiedSequence);
+	if (copiedRows <= 0)
+		return 0;
+
+	for (int pendingRow = 0; pendingRow < copiedRows; ++pendingRow) {
+		waterfallPosition_ = (waterfallPosition_ + 1) % waterfallRows;
+		pendingTextureRows_[static_cast<size_t>(pendingRow)] = waterfallPosition_;
+		const auto sourceOffset = static_cast<size_t>(pendingRow * analyzer->spectrumSize());
+		const auto destinationOffset = static_cast<size_t>(waterfallPosition_ * analyzer->spectrumSize());
+		std::copy_n(pendingSpectra_.data() + sourceOffset, analyzer->spectrumSize(),
+			fftData_.data() + destinationOffset);
 	}
 
-	waterfallPosition_ = nextRow;
 	lastSequence_ = copiedSequence;
-	return true;
+	return copiedRows;
 }

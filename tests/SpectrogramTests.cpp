@@ -86,11 +86,41 @@ bool testResetAndOverflow()
 		&& expect(!analyzer.copyLatestSpectrum(spectrum.data(), static_cast<int>(spectrum.size())),
 			"reset should invalidate the previous spectrum");
 }
+
+bool testOverlappingFrameHistory()
+{
+	Spectrogram analyzer;
+	analyzer.prepare(48000.0);
+	juce::AudioBuffer<float> initialWindow(1, analyzer.fftSize());
+	initialWindow.clear();
+	if (!expect(analyzer.process({ &initialWindow, 0, initialWindow.getNumSamples() }) == 1,
+		"initial window should produce one spectrum frame")) {
+		return false;
+	}
+
+	juce::AudioBuffer<float> overlappingHops(1, analyzer.hopSize() * 3);
+	overlappingHops.clear();
+	if (!expect(analyzer.process({ &overlappingHops, 0, overlappingHops.getNumSamples() }) == 3,
+		"each overlapping hop should produce a spectrum frame")) {
+		return false;
+	}
+
+	std::vector<float> frames(static_cast<size_t>(analyzer.spectrumSize() * 3));
+	std::uint64_t copiedThrough = 0;
+	const auto copiedRows = analyzer.copySpectrumFramesAfter(
+		1, frames.data(), static_cast<int>(frames.size()), &copiedThrough);
+	return expect(copiedRows == 3, "all overlapping frames should be retained for the display")
+		&& expect(copiedThrough == 4, "frame history should report the newest copied sequence")
+		&& expect(analyzer.copySpectrumFramesAfter(
+			copiedThrough, frames.data(), static_cast<int>(frames.size())) == 0,
+			"already consumed spectrum frames should not be copied again");
+}
 }
 
 int main()
 {
-	const auto passed = testSilence() && testBinCentredSine() && testResetAndOverflow();
+	const auto passed = testSilence() && testBinCentredSine() && testResetAndOverflow()
+		&& testOverlappingFrameHistory();
 	if (passed)
 		std::cout << "All spectrogram analyzer tests passed\n";
 	return passed ? EXIT_SUCCESS : EXIT_FAILURE;

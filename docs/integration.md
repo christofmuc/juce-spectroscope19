@@ -83,7 +83,7 @@ private:
 };
 ```
 
-The timer polls the latest completed spectrum at a bounded rate. `refreshData()` only transfers a new row when the analyzer's sequence changes and then requests an OpenGL repaint.
+The timer polls completed spectra at a bounded rate. The analyzer retains a bounded history of overlapping FFT frames, and `refreshData()` drains the available rows into the OpenGL waterfall before requesting a repaint. This preserves analysis-time resolution even when multiple FFT hops complete between UI updates.
 
 Use `setXAxis(true)` for logarithmic frequency mapping and `setHorizontalMode(true)` for horizontal history.
 

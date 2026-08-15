@@ -21,6 +21,7 @@ class Spectrogram {
 public:
 	static constexpr int defaultFftOrder = 11;
 	static constexpr float defaultFloorDb = -100.0f;
+	static constexpr int spectrumHistoryCapacity = 128;
 
 	explicit Spectrogram(int fftOrder = defaultFftOrder, int hopSize = 0, float floorDb = defaultFloorDb);
 
@@ -41,6 +42,12 @@ public:
 	// Copies the most recent row. Returns false until the first FFT has been
 	// produced or when the destination is too small.
 	bool copyLatestSpectrum(float* destination, int destinationSize, std::uint64_t* sequence = nullptr) const;
+
+	// Copies completed spectrum rows newer than afterSequence, oldest first. If
+	// destination cannot hold the entire backlog, the newest rows are retained.
+	// Returns the number of copied rows and reports their newest sequence number.
+	int copySpectrumFramesAfter(std::uint64_t afterSequence, float* destination,
+		int destinationSize, std::uint64_t* copiedThroughSequence = nullptr) const;
 
 	std::uint64_t sequence() const noexcept;
 	std::uint64_t droppedSamples() const noexcept;
@@ -68,7 +75,7 @@ private:
 	std::vector<float> windowedData_;
 	std::vector<float> fftWork_;
 	std::vector<float> nextSpectrum_;
-	std::vector<float> publishedSpectrum_;
+	std::vector<float> publishedSpectra_;
 	int inputDataAvailable_ { 0 };
 	float windowMagnitudeScale_ { 1.0f };
 

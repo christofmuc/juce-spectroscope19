@@ -63,7 +63,7 @@ ctest --test-dir build --output-on-failure
 - **Audio input** toggles between the spectrogram and JUCE's input-device selector.
 - **Log frequency** switches between logarithmic and linear frequency mapping.
 - **Horizontal history** changes the waterfall orientation.
-- **Pitch colours** colours each tempered pitch class by its position on the circle of fifths. Frequencies within 10 cents of a note centre receive full colour and fade to grey by 35 cents.
+- **Pitch colours** colours each tempered pitch class by its position on the circle of fifths. Colour saturation falls continuously from a note centre to neutral grey at the midpoint between neighbouring notes.
 - **A4 reference** sets the tuning reference from 415 Hz to 466 Hz. For example, set it to 444 Hz when analysing an ensemble tuned to A4 = 444 Hz.
 
 Pitch colouring affects only rendering; the analyzer continues to publish the same FFT spectrum. This makes the coloured and traditional palettes directly comparable and keeps tuning policy out of the real-time analysis path.
@@ -78,8 +78,8 @@ The demo intentionally illustrates the safe integration pattern:
 audio-device callback
     -> bounded preallocated audio queue
     -> analysis worker (downmix, window, FFT, dB normalization)
-    -> synchronized latest-spectrum snapshot
-    -> 30 Hz UI polling
+    -> bounded history of overlapping spectrum frames
+    -> 30 Hz UI polling, draining all available frames
     -> OpenGL renderer
 ```
 

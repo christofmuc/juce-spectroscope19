@@ -25,7 +25,7 @@ int fftSizeForOrder(int order)
 int validatedHopSize(int requestedHopSize, int fftSize)
 {
 	if (requestedHopSize <= 0)
-		return fftSize / 16;
+		return fftSize / 4;
 
 	return juce::jlimit(1, fftSize, requestedHopSize);
 }
@@ -46,7 +46,7 @@ Spectrogram::Spectrogram(int fftOrder, int requestedHopSize, float requestedFloo
 	, windowedData_(static_cast<size_t>(fftSize_), 0.0f)
 	, fftWork_(static_cast<size_t>(fftSize_ * 2), 0.0f)
 	, nextSpectrum_(static_cast<size_t>(fftSize_ / 2), floorDb_)
-	, publishedSpectrum_(static_cast<size_t>(fftSize_ / 2), floorDb_)
+	, publishedSpectra_(static_cast<size_t>(fftSize_ / 2 * spectrumHistoryCapacity), floorDb_)
 {
 	std::vector<float> windowValues(static_cast<size_t>(fftSize_), 1.0f);
 	window_.multiplyWithWindowingTable(windowValues.data(), static_cast<size_t>(fftSize_));
@@ -94,7 +94,7 @@ void Spectrogram::reset()
 
 	{
 		const juce::ScopedLock lock(publishedSpectrumLock_);
-		std::fill(publishedSpectrum_.begin(), publishedSpectrum_.end(), floorDb_);
+		std::fill(publishedSpectra_.begin(), publishedSpectra_.end(), floorDb_);
 		sequence_.store(0, std::memory_order_release);
 	}
 }
@@ -125,15 +125,53 @@ bool Spectrogram::copyLatestSpectrum(float* destination, int destinationSize, st
 	if (destination == nullptr || destinationSize < spectrumSize())
 		return false;
 
-	const auto currentSequence = sequence_.load(std::memory_order_acquire);
+	const juce::ScopedLock lock(publishedSpectrumLock_);
+	const auto currentSequence = sequence_.load(std::memory_order_relaxed);
 	if (currentSequence == 0)
 		return false;
 
-	const juce::ScopedLock lock(publishedSpectrumLock_);
-	std::copy(publishedSpectrum_.begin(), publishedSpectrum_.end(), destination);
+	const auto row = static_cast<size_t>((currentSequence - 1)
+		% static_cast<std::uint64_t>(spectrumHistoryCapacity));
+	const auto rowStart = publishedSpectra_.begin() + static_cast<std::ptrdiff_t>(row * spectrumSize());
+	std::copy_n(rowStart, spectrumSize(), destination);
 	if (copiedSequence != nullptr)
-		*copiedSequence = sequence_.load(std::memory_order_relaxed);
+		*copiedSequence = currentSequence;
 	return true;
+}
+
+int Spectrogram::copySpectrumFramesAfter(std::uint64_t afterSequence, float* destination,
+	int destinationSize, std::uint64_t* copiedThroughSequence) const
+{
+	if (destination == nullptr || destinationSize < spectrumSize())
+		return 0;
+
+	const auto destinationRows = destinationSize / spectrumSize();
+	const juce::ScopedLock lock(publishedSpectrumLock_);
+	const auto newestSequence = sequence_.load(std::memory_order_relaxed);
+	if (newestSequence == 0 || newestSequence <= afterSequence)
+		return 0;
+
+	const auto oldestRetainedSequence = newestSequence > spectrumHistoryCapacity
+		? newestSequence - spectrumHistoryCapacity + 1
+		: 1;
+	auto firstSequence = juce::jmax(afterSequence + 1, oldestRetainedSequence);
+	const auto availableRows = newestSequence - firstSequence + 1;
+	if (availableRows > static_cast<std::uint64_t>(destinationRows))
+		firstSequence = newestSequence - static_cast<std::uint64_t>(destinationRows) + 1;
+
+	const auto copiedRows = static_cast<int>(newestSequence - firstSequence + 1);
+	for (int destinationRow = 0; destinationRow < copiedRows; ++destinationRow) {
+		const auto sourceSequence = firstSequence + static_cast<std::uint64_t>(destinationRow);
+		const auto sourceRow = static_cast<size_t>((sourceSequence - 1)
+			% static_cast<std::uint64_t>(spectrumHistoryCapacity));
+		const auto source = publishedSpectra_.begin()
+			+ static_cast<std::ptrdiff_t>(sourceRow * spectrumSize());
+		std::copy_n(source, spectrumSize(), destination + destinationRow * spectrumSize());
+	}
+
+	if (copiedThroughSequence != nullptr)
+		*copiedThroughSequence = newestSequence;
+	return copiedRows;
 }
 
 std::uint64_t Spectrogram::sequence() const noexcept
@@ -234,7 +272,12 @@ void Spectrogram::calculateSpectrum()
 
 	{
 		const juce::ScopedLock lock(publishedSpectrumLock_);
-		std::copy(nextSpectrum_.begin(), nextSpectrum_.end(), publishedSpectrum_.begin());
-		sequence_.fetch_add(1, std::memory_order_release);
+		const auto nextSequence = sequence_.load(std::memory_order_relaxed) + 1;
+		const auto destinationRow = static_cast<size_t>((nextSequence - 1)
+			% static_cast<std::uint64_t>(spectrumHistoryCapacity));
+		auto destination = publishedSpectra_.begin()
+			+ static_cast<std::ptrdiff_t>(destinationRow * spectrumSize());
+		std::copy(nextSpectrum_.begin(), nextSpectrum_.end(), destination);
+		sequence_.store(nextSequence, std::memory_order_release);
 	}
 }
