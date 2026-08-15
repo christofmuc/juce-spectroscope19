@@ -9,9 +9,12 @@
 uniform vec2  resolution;
 uniform int xAxisLog;
 uniform int horizontalMode;
+uniform int pitchColourMode;
 
 uniform float waterfallPosition;
 uniform float upperHalfPercentage;
+uniform float sampleRate;
+uniform float concertAHz;
 uniform sampler2D audioSampleData;
 uniform sampler2D lutTexture; 
 uniform sampler2D waterfall; 
@@ -26,6 +29,36 @@ float linearXAxis(float x) {
 	return x / resolution.x;
 }
 
+vec3 hsvToRgb(vec3 hsv) {
+	vec3 rgb = clamp(abs(mod(hsv.x * 6.0f + vec3(0.0f, 4.0f, 2.0f), 6.0f) - 3.0f) - 1.0f, 0.0f, 1.0f);
+	return hsv.z * mix(vec3(1.0f), rgb, hsv.y);
+}
+
+vec4 spectrumColour(float decibels, float frequencyPosition) {
+	float intensity = clamp(1.0f + decibels / 100.0f, 0.0f, 1.0f);
+	if (pitchColourMode == 0)
+		return texture(lutTexture, vec2(intensity, 0.0f));
+
+	float frequency = frequencyPosition * sampleRate * 0.5f;
+	if (frequency <= 0.0f || concertAHz <= 0.0f)
+		return vec4(vec3(intensity), 1.0f);
+
+	float fractionalMidiNote = 69.0f + 12.0f * log(frequency / concertAHz) / log(2.0f);
+	float nearestMidiNote = floor(fractionalMidiNote + 0.5f);
+	float centsFromNote = abs(100.0f * (fractionalMidiNote - nearestMidiNote));
+
+	// Multiplication by seven maps chromatic pitch classes onto circle-of-fifths order:
+	// C, G, D, A, E, B, F#, C#, G#, D#, A#, F.
+	float pitchClass = mod(nearestMidiNote, 12.0f);
+	float fifthIndex = mod(pitchClass * 7.0f, 12.0f);
+	float hue = fifthIndex / 12.0f;
+
+	// Frequencies close to a tempered note centre carry its hue. Ambiguous or
+	// out-of-tune frequencies fade to grey before the neighbouring note centre.
+	float saturation = 1.0f - smoothstep(10.0f, 35.0f, centsFromNote);
+	return vec4(hsvToRgb(vec3(hue, saturation, intensity)), 1.0f);
+}
+
 void main()
 {
 	float y = gl_FragCoord.y / resolution.y;
@@ -37,8 +70,7 @@ void main()
 		  y = 	1.0f - exp(log(1.0f - y) * 0.2f);
 		}
 		float value = texture(waterfall, vec2(y, (x + waterfallPosition))).r;
-		value = 1.0 + value / 100.0;
-		fragmentColour = texture(lutTexture, vec2(value, 0));
+		fragmentColour = spectrumColour(value, y);
 	} else {
 		// Vertical Mode
 		float x;
@@ -49,11 +81,11 @@ void main()
 		}
 
 		float amplitude = texture(audioSampleData, vec2(x, 0.0)).r;
-		amplitude = 1 + amplitude / 100.0;
+		float amplitudeNormalised = clamp(1.0f + amplitude / 100.0f, 0.0f, 1.0f);
 		if (y > upperHalfPercentage) {
 			// upper half of screen shows curve
-			if ((y-upperHalfPercentage)/(1-upperHalfPercentage) < amplitude)  {
-				fragmentColour = texture(lutTexture, vec2(amplitude, 0));
+			if ((y-upperHalfPercentage)/(1-upperHalfPercentage) < amplitudeNormalised)  {
+				fragmentColour = spectrumColour(amplitude, x);
 			}
 			else {
 				fragmentColour = vec4 (0.0, 0.0, 0.0, 1.0);
@@ -62,8 +94,7 @@ void main()
 			// lower half shows history
 			//float value = texture(waterfall, vec2(x, waterfallPosition)).r;
 			float value = texture(waterfall, vec2(x, (waterfallPosition - (1-y/upperHalfPercentage)))).r;
-			value = 1 + value / 100.0;
-			fragmentColour = texture(lutTexture, vec2(value, 0));
+			fragmentColour = spectrumColour(value, x);
 		}
 	}
 }

@@ -71,6 +71,9 @@ private:
 	juce::TextButton deviceButton_ { "Audio input" };
 	juce::ToggleButton logarithmicButton_ { "Log frequency" };
 	juce::ToggleButton horizontalButton_ { "Horizontal history" };
+	juce::ToggleButton pitchColourButton_ { "Pitch colours" };
+	juce::Label concertALabel_;
+	juce::Slider concertASlider_;
 	juce::Label statusLabel_;
 	bool audioCallbackRegistered_ { false };
 

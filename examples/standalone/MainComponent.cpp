@@ -107,10 +107,22 @@ MainComponent::MainComponent()
 	addAndMakeVisible(deviceButton_);
 	addAndMakeVisible(logarithmicButton_);
 	addAndMakeVisible(horizontalButton_);
+	addAndMakeVisible(pitchColourButton_);
+	addAndMakeVisible(concertALabel_);
+	addAndMakeVisible(concertASlider_);
 	addAndMakeVisible(statusLabel_);
 	addChildComponent(deviceSelector_);
 
 	logarithmicButton_.setToggleState(true, juce::dontSendNotification);
+	pitchColourButton_.setToggleState(true, juce::dontSendNotification);
+	concertALabel_.setText("A4 reference", juce::dontSendNotification);
+	concertALabel_.setJustificationType(juce::Justification::centredRight);
+	concertASlider_.setRange(415.0, 466.0, 0.1);
+	concertASlider_.setValue(440.0, juce::dontSendNotification);
+	concertASlider_.setTextValueSuffix(" Hz");
+	concertASlider_.setSliderStyle(juce::Slider::LinearHorizontal);
+	concertASlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 72, 24);
+	spectrogram_.setPitchColourMode(true);
 	deviceButton_.onClick = [this] {
 		const auto showSettings = !deviceSelector_.isVisible();
 		deviceSelector_.setVisible(showSettings);
@@ -122,6 +134,12 @@ MainComponent::MainComponent()
 	};
 	horizontalButton_.onClick = [this] {
 		spectrogram_.setHorizontalMode(horizontalButton_.getToggleState());
+	};
+	pitchColourButton_.onClick = [this] {
+		spectrogram_.setPitchColourMode(pitchColourButton_.getToggleState());
+	};
+	concertASlider_.onValueChange = [this] {
+		spectrogram_.setConcertAHz(static_cast<float>(concertASlider_.getValue()));
 	};
 
 	setSize(900, 650);
@@ -160,11 +178,16 @@ void MainComponent::paint(juce::Graphics& graphics)
 void MainComponent::resized()
 {
 	auto area = getLocalBounds().reduced(10);
-	auto controls = area.removeFromBottom(36);
-	deviceButton_.setBounds(controls.removeFromLeft(110));
-	logarithmicButton_.setBounds(controls.removeFromLeft(130));
-	horizontalButton_.setBounds(controls.removeFromLeft(160));
-	statusLabel_.setBounds(controls);
+	auto controls = area.removeFromBottom(72);
+	auto firstRow = controls.removeFromTop(32);
+	auto secondRow = controls.removeFromBottom(32);
+	deviceButton_.setBounds(firstRow.removeFromLeft(110));
+	logarithmicButton_.setBounds(firstRow.removeFromLeft(130));
+	horizontalButton_.setBounds(firstRow.removeFromLeft(160));
+	pitchColourButton_.setBounds(firstRow.removeFromLeft(130));
+	statusLabel_.setBounds(firstRow);
+	concertALabel_.setBounds(secondRow.removeFromLeft(100));
+	concertASlider_.setBounds(secondRow.removeFromLeft(220));
 
 	area.removeFromBottom(8);
 	deviceSelector_.setBounds(area);

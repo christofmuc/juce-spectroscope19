@@ -30,6 +30,8 @@ public:
 
 	void setXAxis(bool logAxis);
 	void setHorizontalMode(bool horizontal);
+	void setPitchColourMode(bool enabled);
+	void setConcertAHz(float frequencyHz);
 
 private:
 	std::shared_ptr<juce::OpenGLTexture> createColorLookupTexture();
@@ -56,6 +58,9 @@ private:
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> logXAxis_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uUpperHalfPercentage_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uHorizontal_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uPitchColourMode_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uSampleRate_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uConcertAHz_;
 
 	std::vector<GLfloat> fftData_;
 	int waterfallPosition_ { 0 };
@@ -63,6 +68,8 @@ private:
 	std::atomic<bool> refreshRequested_ { true };
 	std::atomic<bool> xLogAxis_ { true };
 	std::atomic<bool> horizontal_ { false };
+	std::atomic<bool> pitchColourMode_ { false };
+	std::atomic<float> concertAHz_ { 440.0f };
 	float upperHalfPercentage_ { 0.618f };
 	bool openGLReady_ { false };
 
