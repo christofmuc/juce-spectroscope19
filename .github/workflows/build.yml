@@ -14,7 +14,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -24,7 +24,15 @@ jobs:
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
             libxrandr-dev libxrender-dev libxi-dev libglu1-mesa-dev mesa-common-dev libegl-dev
 
-      - name: Configure
+      - name: Configure Windows
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -S . -B build -A x64
+          -DJUCE_SPECTROSCOPE_BUILD_DEMO=ON
+          -DJUCE_SPECTROSCOPE_BUILD_TESTS=ON
+
+      - name: Configure Unix
+        if: runner.os != 'Windows'
         run: >-
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -32,7 +40,7 @@ jobs:
           -DJUCE_SPECTROSCOPE_BUILD_TESTS=ON
 
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build --config RelWithDebInfo --parallel
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -C RelWithDebInfo --output-on-failure
