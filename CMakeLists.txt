@@ -45,7 +45,6 @@ target_compile_features(juce-spectroscope-analysis PUBLIC cxx_std_17)
 
 add_library(juce-spectroscope-ui STATIC
 	"${GENERATED_RESOURCES}"
-	ManagedOpenGLComponent.h
 	OpenGLFloatTexture.cpp
 	OpenGLFloatTexture.h
 	OpenGLHelpers.cpp
