@@ -217,9 +217,9 @@ void SpectrogramWidget::setHorizontalMode(bool horizontal)
 void SpectrogramWidget::publishStatus(String statusText)
 {
 	Component::SafePointer<SpectrogramWidget> safeThis(this);
-	MessageManager::callAsync([safeThis, statusText = std::move(statusText)]() mutable {
+	MessageManager::callAsync([safeThis, statusTextToPublish = std::move(statusText)]() mutable {
 		if (safeThis != nullptr)
-			safeThis->statusLabel_.setText(std::move(statusText), dontSendNotification);
+			safeThis->statusLabel_.setText(std::move(statusTextToPublish), dontSendNotification);
 	});
 }
 

@@ -7,6 +7,7 @@
 
 using namespace juce::gl;
 
+namespace {
 const char* getGLErrorMessage(const GLenum e) noexcept
 {
 	switch (e)
@@ -30,20 +31,6 @@ const char* getGLErrorMessage(const GLenum e) noexcept
 	return "Unknown error";
 }
 
-#if JUCE_MAC || JUCE_IOS
-
-#ifndef JUCE_IOS_MAC_VIEW
-#if JUCE_IOS
-#define JUCE_IOS_MAC_VIEW    UIView
-#define JUCE_IOS_MAC_WINDOW  UIWindow
-#else
-#define JUCE_IOS_MAC_VIEW    NSView
-#define JUCE_IOS_MAC_WINDOW  NSWindow
-#endif
-#endif
-
-#endif
-
 bool checkPeerIsValid(juce::OpenGLContext* context)
 {
 	jassert(context != nullptr);
@@ -54,29 +41,14 @@ bool checkPeerIsValid(juce::OpenGLContext* context)
 		{
 			if (auto* peer = comp->getPeer())
 			{
-#if JUCE_MAC || JUCE_IOS
-				if (auto* nsView = (JUCE_IOS_MAC_VIEW*)peer->getNativeHandle())
-				{
-					if (auto nsWindow = [nsView window])
-					{
-#if JUCE_MAC
-						return ([nsWindow isVisible]
-							&& (![nsWindow hidesOnDeactivate] || [NSApp isActive]));
-#else
-						ignoreUnused(nsWindow);
-						return true;
-#endif
-					}
-				}
-#else
 				ignoreUnused(peer);
 				return true;
-#endif
 			}
 		}
 	}
 
 	return false;
+}
 }
 
 void checkGLError(const char* file, const int line)
@@ -98,11 +70,6 @@ void checkGLError(const char* file, const int line)
 		juce::ignoreUnused(errorMsg);
 		jassertfalse;
 	}
-}
-
-void clearGLError() noexcept
-{
-	while (glGetError() != GL_NO_ERROR) {}
 }
 
 int getAllowedTextureSize(int x)
