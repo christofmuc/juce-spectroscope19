@@ -8,7 +8,11 @@
 
 ShaderBasedComponent::ShaderBasedComponent()
 {
+#if JUCE_MAJOR_VERSION >= 9
+	context_.setPreferredVersion({ 3, 2 });
+#else
 	context_.setOpenGLVersionRequired(juce::OpenGLContext::openGL3_2);
+#endif
 	context_.setRenderer(this);
 	context_.setContinuousRepainting(false);
 	context_.attachTo(*this);
