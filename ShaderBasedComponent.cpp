@@ -8,7 +8,7 @@
 
 ShaderBasedComponent::ShaderBasedComponent()
 {
-	context_.setOpenGLVersionRequired(juce::OpenGLContext::OpenGLVersion::openGL3_2);
+	context_.setOpenGLVersionRequired(juce::OpenGLContext::openGL3_2);
 	context_.setRenderer(this);
 	context_.setContinuousRepainting(false);
 	context_.attachTo(*this);
