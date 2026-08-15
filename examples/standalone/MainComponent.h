@@ -41,8 +41,7 @@ private:
 };
 
 class MainComponent final : public juce::Component,
-	private juce::AudioIODeviceCallback,
-	private juce::Timer {
+	private juce::AudioIODeviceCallback {
 public:
 	MainComponent();
 	~MainComponent() override;
@@ -52,7 +51,6 @@ public:
 
 private:
 	void initialiseAudio();
-	void timerCallback() override;
 	void audioDeviceIOCallbackWithContext(
 		const float* const* inputChannelData,
 		int numInputChannels,

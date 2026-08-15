@@ -143,7 +143,9 @@ MainComponent::MainComponent()
 	};
 
 	setSize(900, 650);
-	startTimerHz(30);
+	// Continuous OpenGL repainting is synchronized by swap interval 1, so the
+	// waterfall follows the display refresh instead of a fixed message timer.
+	spectrogram_.setContinuousRedrawing(true);
 
 	if (juce::RuntimePermissions::isRequired(juce::RuntimePermissions::recordAudio)
 		&& !juce::RuntimePermissions::isGranted(juce::RuntimePermissions::recordAudio)) {
@@ -164,7 +166,7 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
-	stopTimer();
+	spectrogram_.setContinuousRedrawing(false);
 	if (audioCallbackRegistered_)
 		deviceManager_.removeAudioCallback(this);
 	analysisWorker_.release();
@@ -205,11 +207,6 @@ void MainComponent::initialiseAudio()
 	deviceManager_.addAudioCallback(this);
 	audioCallbackRegistered_ = true;
 	statusLabel_.setText("Listening to the default audio input", juce::dontSendNotification);
-}
-
-void MainComponent::timerCallback()
-{
-	spectrogram_.refreshData();
 }
 
 void MainComponent::audioDeviceIOCallbackWithContext(

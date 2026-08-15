@@ -160,7 +160,8 @@ void SpectrogramWidget::renderOpenGL()
 		return;
 
 	int spectraUpdated = 0;
-	if (refreshRequested_.exchange(false, std::memory_order_acq_rel))
+	const auto refreshWasRequested = refreshRequested_.exchange(false, std::memory_order_acq_rel);
+	if (isRunning() || refreshWasRequested)
 		spectraUpdated = pullAvailableSpectra();
 
 	shader_->use();

@@ -56,15 +56,19 @@ The standalone demo's `DemoAnalysisWorker` is a compact reference. JammerNetz us
 Construct `SpectrogramWidget` with a weakly-held analyzer source and keep the analyzer alive independently:
 
 ```cpp
-class SpectrumPanel final : public juce::Component,
-                            private juce::Timer {
+class SpectrumPanel final : public juce::Component {
 public:
     SpectrumPanel()
         : analyzer(std::make_shared<Spectrogram>()),
           widget(analyzer)
     {
         addAndMakeVisible(widget);
-        startTimerHz(30);
+        widget.setContinuousRedrawing(true);
+    }
+
+    ~SpectrumPanel() override
+    {
+        widget.setContinuousRedrawing(false);
     }
 
     void resized() override
@@ -73,17 +77,12 @@ public:
     }
 
 private:
-    void timerCallback() override
-    {
-        widget.refreshData();
-    }
-
     std::shared_ptr<Spectrogram> analyzer;
     SpectrogramWidget widget;
 };
 ```
 
-The timer polls completed spectra at a bounded rate. The analyzer retains a bounded history of overlapping FFT frames, and `refreshData()` drains the available rows into the OpenGL waterfall before requesting a repaint. This preserves analysis-time resolution even when multiple FFT hops complete between UI updates.
+Continuous redrawing follows the OpenGL swap interval and therefore the display refresh rate. The analyzer retains a bounded history of overlapping FFT frames, and each render drains the available rows into the waterfall. This preserves analysis-time resolution when multiple FFT hops complete between display frames. Applications that prefer manual repaint scheduling may leave continuous redrawing disabled and call `refreshData()` from a bounded timer instead.
 
 Use `setXAxis(true)` for logarithmic frequency mapping and `setHorizontalMode(true)` for horizontal history.
 
@@ -94,7 +93,7 @@ Recommended destruction order:
 1. stop or detach the audio-device callback;
 2. prevent any further queue writes;
 3. signal and join the analysis worker;
-4. stop UI timers;
+4. stop continuous redrawing or UI timers;
 5. destroy the OpenGL widget;
 6. release the analyzer.
 

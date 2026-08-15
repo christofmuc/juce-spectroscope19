@@ -79,8 +79,7 @@ audio-device callback
     -> bounded preallocated audio queue
     -> analysis worker (downmix, window, FFT, dB normalization)
     -> bounded history of overlapping spectrum frames
-    -> 30 Hz UI polling, draining all available frames
-    -> OpenGL renderer
+    -> VSync-driven OpenGL renderer, draining all available frames
 ```
 
 The audio callback only copies samples and signals the worker. When the queue is full or an audio block exceeds the documented demo capacity, analysis input is dropped; audio processing never waits for visualization.
