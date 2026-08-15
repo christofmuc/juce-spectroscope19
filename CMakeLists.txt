@@ -20,6 +20,12 @@ option(JUCE_SPECTROSCOPE_BUILD_TESTS "Build the headless analyzer tests" ${JUCE_
 option(JUCE_SPECTROSCOPE_BUILD_DEMO "Build the standalone microphone-input demo" ${JUCE_SPECTROSCOPE_IS_TOP_LEVEL})
 option(JUCE_SPECTROSCOPE_FETCH_JUCE "Fetch the pinned JUCE dependency for standalone builds" ${JUCE_SPECTROSCOPE_IS_TOP_LEVEL})
 
+# Keep standalone MSVC builds runnable without the Visual C++ debug runtime DLLs.
+# When embedded, the parent project remains responsible for choosing its runtime.
+if(MSVC AND JUCE_SPECTROSCOPE_IS_TOP_LEVEL)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 if(NOT TARGET juce-static)
 	if(NOT TARGET juce::juce_core AND JUCE_SPECTROSCOPE_FETCH_JUCE)
 		include(FetchContent)
