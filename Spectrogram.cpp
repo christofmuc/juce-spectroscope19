@@ -46,7 +46,10 @@ Spectrogram::Spectrogram(int fftOrder, int requestedHopSize, float requestedFloo
 	, windowedData_(static_cast<size_t>(fftSize_), 0.0f)
 	, fftWork_(static_cast<size_t>(fftSize_ * 2), 0.0f)
 	, nextSpectrum_(static_cast<size_t>(fftSize_ / 2), floorDb_)
+	, nextPitchClass_(static_cast<size_t>(PitchTracker::outputBinCount), 0.0f)
 	, publishedSpectra_(static_cast<size_t>(fftSize_ / 2 * spectrumHistoryCapacity), floorDb_)
+	, publishedPitchClasses_(static_cast<size_t>(
+		PitchTracker::outputBinCount * spectrumHistoryCapacity), 0.0f)
 {
 	std::vector<float> windowValues(static_cast<size_t>(fftSize_), 1.0f);
 	window_.multiplyWithWindowingTable(windowValues.data(), static_cast<size_t>(fftSize_));
@@ -64,6 +67,11 @@ int Spectrogram::spectrumSize() const noexcept
 	return fftSize_ / 2;
 }
 
+int Spectrogram::pitchClassSize() const noexcept
+{
+	return PitchTracker::outputBinCount;
+}
+
 int Spectrogram::hopSize() const noexcept
 {
 	return hopSize_;
@@ -77,6 +85,8 @@ float Spectrogram::floorDb() const noexcept
 void Spectrogram::prepare(double newSampleRate)
 {
 	sampleRate_.store(newSampleRate > 0.0 ? newSampleRate : 0.0, std::memory_order_relaxed);
+	pitchTracker_.prepare(sampleRate_.load(std::memory_order_relaxed),
+		concertAHz_.load(std::memory_order_relaxed));
 	reset();
 }
 
@@ -89,12 +99,15 @@ void Spectrogram::reset()
 	std::fill(windowedData_.begin(), windowedData_.end(), 0.0f);
 	std::fill(fftWork_.begin(), fftWork_.end(), 0.0f);
 	std::fill(nextSpectrum_.begin(), nextSpectrum_.end(), floorDb_);
+	std::fill(nextPitchClass_.begin(), nextPitchClass_.end(), 0.0f);
+	pitchTracker_.reset();
 	inputDataAvailable_ = 0;
 	droppedSamples_.store(0, std::memory_order_relaxed);
 
 	{
 		const juce::ScopedLock lock(publishedSpectrumLock_);
 		std::fill(publishedSpectra_.begin(), publishedSpectra_.end(), floorDb_);
+		std::fill(publishedPitchClasses_.begin(), publishedPitchClasses_.end(), 0.0f);
 		sequence_.store(0, std::memory_order_release);
 	}
 }
@@ -109,6 +122,8 @@ int Spectrogram::process(const juce::AudioSourceChannelInfo& data)
 	int rowsProduced = 0;
 	while (fifo_.getNumReady() >= hopSize_) {
 		readHop();
+		pitchTracker_.setConcertAHz(concertAHz_.load(std::memory_order_relaxed));
+		pitchTracker_.process(hopBuffer_.getReadPointer(0), hopSize_);
 		appendHop();
 
 		if (inputDataAvailable_ == fftSize_) {
@@ -175,6 +190,85 @@ int Spectrogram::copySpectrumFramesAfter(std::uint64_t afterSequence, float* des
 	if (copiedThroughSequence != nullptr)
 		*copiedThroughSequence = newestSequence;
 	return copiedRows;
+}
+
+int Spectrogram::copyAnalysisFramesAfter(std::uint64_t afterSequence,
+	float* spectrumDestination, int spectrumDestinationSize,
+	float* pitchDestination, int pitchDestinationSize,
+	std::uint64_t* copiedThroughSequence) const
+{
+	if (spectrumDestination == nullptr || spectrumDestinationSize < spectrumSize()
+		|| pitchDestination == nullptr || pitchDestinationSize < pitchClassSize()) {
+		return 0;
+	}
+
+	const auto destinationRows = std::min(
+		spectrumDestinationSize / spectrumSize(), pitchDestinationSize / pitchClassSize());
+	const juce::ScopedLock lock(publishedSpectrumLock_);
+	const auto newestSequence = sequence_.load(std::memory_order_relaxed);
+	if (newestSequence == 0 || newestSequence <= afterSequence)
+		return 0;
+
+	const auto oldestRetainedSequence = newestSequence > spectrumHistoryCapacity
+		? newestSequence - spectrumHistoryCapacity + 1
+		: 1;
+	auto firstSequence = juce::jmax(afterSequence + 1, oldestRetainedSequence);
+	const auto availableRows = newestSequence - firstSequence + 1;
+	if (availableRows > static_cast<std::uint64_t>(destinationRows))
+		firstSequence = newestSequence - static_cast<std::uint64_t>(destinationRows) + 1;
+
+	const auto copiedRows = static_cast<int>(newestSequence - firstSequence + 1);
+	const auto spectrumStride = static_cast<size_t>(spectrumSize());
+	const auto pitchStride = static_cast<size_t>(pitchClassSize());
+	for (int destinationRow = 0; destinationRow < copiedRows; ++destinationRow) {
+		const auto sourceSequence = firstSequence + static_cast<std::uint64_t>(destinationRow);
+		const auto sourceRow = static_cast<size_t>((sourceSequence - 1)
+			% static_cast<std::uint64_t>(spectrumHistoryCapacity));
+		const auto spectrumSource = publishedSpectra_.begin()
+			+ static_cast<std::ptrdiff_t>(sourceRow * spectrumStride);
+		const auto pitchSource = publishedPitchClasses_.begin()
+			+ static_cast<std::ptrdiff_t>(sourceRow * pitchStride);
+		std::copy_n(spectrumSource, spectrumSize(),
+			spectrumDestination + destinationRow * spectrumSize());
+		std::copy_n(pitchSource, pitchClassSize(),
+			pitchDestination + destinationRow * pitchClassSize());
+	}
+
+	if (copiedThroughSequence != nullptr)
+		*copiedThroughSequence = newestSequence;
+	return copiedRows;
+}
+
+bool Spectrogram::copyLatestPitchClass(float* destination, int destinationSize,
+	std::uint64_t* copiedSequence) const
+{
+	if (destination == nullptr || destinationSize < pitchClassSize())
+		return false;
+
+	const juce::ScopedLock lock(publishedSpectrumLock_);
+	const auto currentSequence = sequence_.load(std::memory_order_relaxed);
+	if (currentSequence == 0)
+		return false;
+
+	const auto row = static_cast<size_t>((currentSequence - 1)
+		% static_cast<std::uint64_t>(spectrumHistoryCapacity));
+	const auto rowStride = static_cast<size_t>(pitchClassSize());
+	const auto rowStart = publishedPitchClasses_.begin()
+		+ static_cast<std::ptrdiff_t>(row * rowStride);
+	std::copy_n(rowStart, pitchClassSize(), destination);
+	if (copiedSequence != nullptr)
+		*copiedSequence = currentSequence;
+	return true;
+}
+
+void Spectrogram::setConcertAHz(float frequencyHz) noexcept
+{
+	concertAHz_.store(juce::jlimit(400.0f, 480.0f, frequencyHz), std::memory_order_relaxed);
+}
+
+float Spectrogram::concertAHz() const noexcept
+{
+	return concertAHz_.load(std::memory_order_relaxed);
 }
 
 std::uint64_t Spectrogram::sequence() const noexcept
@@ -272,6 +366,7 @@ void Spectrogram::calculateSpectrum()
 		nextSpectrum_[static_cast<size_t>(bin)] = juce::jlimit(
 			floorDb_, 0.0f, juce::Decibels::gainToDecibels(normalizedMagnitude, floorDb_));
 	}
+	pitchTracker_.calculate(nextPitchClass_.data(), pitchClassSize());
 
 	{
 		const juce::ScopedLock lock(publishedSpectrumLock_);
@@ -282,6 +377,10 @@ void Spectrogram::calculateSpectrum()
 		auto destination = publishedSpectra_.begin()
 			+ static_cast<std::ptrdiff_t>(destinationRow * rowStride);
 		std::copy(nextSpectrum_.begin(), nextSpectrum_.end(), destination);
+		const auto pitchStride = static_cast<size_t>(pitchClassSize());
+		auto pitchDestination = publishedPitchClasses_.begin()
+			+ static_cast<std::ptrdiff_t>(destinationRow * pitchStride);
+		std::copy(nextPitchClass_.begin(), nextPitchClass_.end(), pitchDestination);
 		sequence_.store(nextSequence, std::memory_order_release);
 	}
 }

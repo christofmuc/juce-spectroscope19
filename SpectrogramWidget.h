@@ -34,13 +34,15 @@ public:
 	void setHorizontalMode(bool horizontal);
 	void setPitchColourMode(bool enabled);
 	void setConcertAHz(float frequencyHz);
+	bool isOpenGLReady() const noexcept;
 
 private:
 	std::shared_ptr<juce::OpenGLTexture> createColorLookupTexture();
-	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int width, int height, float initialValue);
+	std::shared_ptr<OpenGLFloatTexture> createDataTexture(
+		int width, int height, float initialValue, bool repeatHorizontally = false);
 	void publishStatus(juce::String statusText);
 	void releaseOpenGLResources();
-	int pullAvailableSpectra();
+	int pullAvailableFrames();
 
 	std::weak_ptr<Spectrogram> spectrogram_;
 
@@ -49,6 +51,8 @@ private:
 	std::shared_ptr<juce::OpenGLTexture> textureLUT_;
 	std::shared_ptr<OpenGLFloatTexture> spectrumData_;
 	std::shared_ptr<OpenGLFloatTexture> spectrumHistory_;
+	std::shared_ptr<OpenGLFloatTexture> pitchClassData_;
+	std::shared_ptr<OpenGLFloatTexture> pitchClassHistory_;
 
 	std::unique_ptr<juce::OpenGLShaderProgram> shader_;
 	std::unique_ptr<juce::OpenGLShaderProgram::Attribute> position_;
@@ -56,6 +60,8 @@ private:
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> audioSampleData_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> lutTexture_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> waterfallTexture_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> pitchClassDataUniform_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> pitchClassHistoryUniform_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> waterfallStartUniform_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> waterfallSpanUniform_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> logXAxis_;
@@ -69,6 +75,8 @@ private:
 
 	std::vector<GLfloat> fftData_;
 	std::vector<GLfloat> pendingSpectra_;
+	std::vector<GLfloat> pitchClassDataHistory_;
+	std::vector<GLfloat> pendingPitchClasses_;
 	std::array<int, 32> pendingTextureRows_ {};
 	int waterfallPosition_ { 0 };
 	std::uint64_t lastSequence_ { 0 };
@@ -78,7 +86,7 @@ private:
 	std::atomic<bool> pitchColourMode_ { false };
 	std::atomic<float> concertAHz_ { 440.0f };
 	float upperHalfPercentage_ { 0.618f };
-	bool openGLReady_ { false };
+	std::atomic<bool> openGLReady_ { false };
 
 	juce::Label statusLabel_;
 

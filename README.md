@@ -15,7 +15,7 @@ The repository supports two use cases:
 
 | Target | Purpose |
 | --- | --- |
-| `juce-spectroscope-analysis` | Headless FFT analysis with JUCE core, audio-basics, and DSP dependencies. |
+| `juce-spectroscope-analysis` | Headless FFT plus logarithmic tracked-pitch analysis with JUCE core, audio-basics, and DSP dependencies. |
 | `juce-spectroscope-ui` | OpenGL spectrum and waterfall visualization. |
 | `juce-spectroscope19` | Compatibility target linking the analysis and UI targets. |
 | `JuceSpectroscopeDemo` | Optional standalone microphone-input application. |
@@ -44,6 +44,8 @@ target_link_libraries(MyApplication PRIVATE juce-spectroscope19)
 ```
 
 Audio callbacks must not call `Spectrogram::process()` directly. Copy audio into a bounded preallocated queue, perform analysis on a worker thread, and let the UI poll completed spectra at a bounded rate. The standalone demo is a working reference implementation.
+
+The analyzer publishes two synchronized views of every analysis instant: a full-resolution FFT row for transients, noise, harmonics, and timbre, plus an octave-folded tracked pitch-class field. Pitch-colour mode renders the FFT as a greyscale substrate and adds circle-of-fifths colour only where stable tracked notes agree with spectral energy. The logarithmic tracker is an independent implementation inspired by the general ColorChord approach; ColorChord is not a source or runtime dependency.
 
 See [Integrating JUCE Spectroscope](docs/integration.md) for target selection, ownership, lifecycle, and threading guidance.
 

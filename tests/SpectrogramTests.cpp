@@ -1,8 +1,10 @@
+#include "PitchTracker.h"
 #include "Spectrogram.h"
 #include "WaterfallTimeline.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -31,10 +33,177 @@ void fillBinCentredSine(juce::AudioBuffer<float>& buffer, int fftSize, int bin)
 	}
 }
 
+void fillSine(juce::AudioBuffer<float>& buffer, double frequency, double sampleRate, double& phase)
+{
+	for (int sample = 0; sample < buffer.getNumSamples(); ++sample) {
+		const auto value = static_cast<float>(0.6 * std::sin(phase));
+		phase += juce::MathConstants<double>::twoPi * frequency / sampleRate;
+		if (phase >= juce::MathConstants<double>::twoPi)
+			phase -= juce::MathConstants<double>::twoPi;
+		for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+			buffer.setSample(channel, sample, value);
+	}
+}
+
 int peakBin(const float* spectrum, int spectrumSize)
 {
 	const auto peak = std::max_element(spectrum + 1, spectrum + spectrumSize);
 	return static_cast<int>(std::distance(spectrum, peak));
+}
+
+float circularOutputDistance(int first, int second)
+{
+	const auto direct = std::abs(first - second);
+	return static_cast<float>(std::min(direct, PitchTracker::outputBinCount - direct));
+}
+
+int pitchFieldPeak(const std::vector<float>& field)
+{
+	return static_cast<int>(std::distance(field.begin(),
+		std::max_element(field.begin(), field.end())));
+}
+
+float pitchFieldAtSemitonesFromA(const std::vector<float>& field, float semitonesFromA)
+{
+	const auto octavePosition = semitonesFromA / 12.0f - std::floor(semitonesFromA / 12.0f);
+	const auto index = static_cast<int>(std::floor(
+		octavePosition * static_cast<float>(PitchTracker::outputBinCount)))
+		% PitchTracker::outputBinCount;
+	return field[static_cast<std::size_t>(index)];
+}
+
+void processPitchSignal(PitchTracker& tracker, const std::vector<double>& frequencies,
+	int blockCount, std::vector<float>& field)
+{
+	constexpr int blockSize = 512;
+	constexpr double sampleRate = 48000.0;
+	std::vector<float> samples(blockSize);
+	std::vector<double> phases(frequencies.size(), 0.0);
+	for (int block = 0; block < blockCount; ++block) {
+		for (int sample = 0; sample < blockSize; ++sample) {
+			auto value = 0.0;
+			for (std::size_t frequencyIndex = 0; frequencyIndex < frequencies.size(); ++frequencyIndex) {
+				value += std::sin(phases[frequencyIndex]);
+				phases[frequencyIndex] += juce::MathConstants<double>::twoPi
+					* frequencies[frequencyIndex] / sampleRate;
+				if (phases[frequencyIndex] >= juce::MathConstants<double>::twoPi)
+					phases[frequencyIndex] -= juce::MathConstants<double>::twoPi;
+			}
+			samples[static_cast<std::size_t>(sample)] = frequencies.empty()
+				? 0.0f : static_cast<float>(0.6 * value / static_cast<double>(frequencies.size()));
+		}
+		tracker.process(samples.data(), blockSize);
+		tracker.calculate(field.data(), static_cast<int>(field.size()));
+	}
+}
+
+bool testPitchTrackerStablePitchAndDetuning()
+{
+	constexpr double concertA = 440.0;
+	const auto c4 = concertA * 0.5 * 0.5 * std::pow(2.0, 3.0 / 12.0);
+	PitchTracker tracker;
+	tracker.prepare(48000.0, static_cast<float>(concertA));
+	std::vector<float> field(PitchTracker::outputBinCount);
+	processPitchSignal(tracker, { c4 }, 80, field);
+
+	const auto expectedC = PitchTracker::outputBinCount / 4;
+	if (!expect(circularOutputDistance(pitchFieldPeak(field), expectedC) <= 3.0f,
+		"tracked C should peak at its octave-relative pitch position")
+		|| !expect(*std::max_element(field.begin(), field.end()) > 0.7f,
+			"a sustained pure tone should become a confident tracked note")) {
+		return false;
+	}
+
+	tracker.reset();
+	constexpr double detuningCents = 20.0;
+	const auto sharpC = c4 * std::pow(2.0, detuningCents / 1200.0);
+	processPitchSignal(tracker, { sharpC }, 80, field);
+	const auto expectedSharpC = static_cast<int>(std::lround(
+		(3.0 + detuningCents / 100.0) / 12.0 * PitchTracker::outputBinCount));
+	return expect(circularOutputDistance(pitchFieldPeak(field), expectedSharpC) <= 4.0f,
+		"interpolated tracked pitch should follow a sharp input between note centres");
+}
+
+bool testPitchTrackerChordAndRelease()
+{
+	constexpr double concertA = 440.0;
+	auto frequencyForSemitones = [concertA](double semitonesFromA) {
+		return concertA * 0.25 * std::pow(2.0, semitonesFromA / 12.0);
+	};
+	PitchTracker tracker;
+	tracker.prepare(48000.0, static_cast<float>(concertA));
+	std::vector<float> field(PitchTracker::outputBinCount);
+	processPitchSignal(tracker,
+		{ frequencyForSemitones(3.0), frequencyForSemitones(7.0), frequencyForSemitones(10.0) },
+		100, field);
+
+	if (!expect(pitchFieldAtSemitonesFromA(field, 3.0f) > 0.25f,
+		"C in a C-major chord should be tracked")
+		|| !expect(pitchFieldAtSemitonesFromA(field, 7.0f) > 0.25f,
+			"E in a C-major chord should be tracked")
+		|| !expect(pitchFieldAtSemitonesFromA(field, 10.0f) > 0.25f,
+			"G in a C-major chord should be tracked")) {
+		return false;
+	}
+
+	const auto strengthBeforeSilence = pitchFieldAtSemitonesFromA(field, 3.0f);
+	processPitchSignal(tracker, {}, 1, field);
+	if (!expect(pitchFieldAtSemitonesFromA(field, 3.0f) > strengthBeforeSilence * 0.75f,
+		"a tracked note should not disappear on the first silent frame")) {
+		return false;
+	}
+
+	processPitchSignal(tracker, {}, 100, field);
+	return expect(*std::max_element(field.begin(), field.end()) < 0.05f,
+		"tracked notes should eventually release to silence");
+}
+
+bool testPitchTrackerRejectsBroadbandNoise()
+{
+	PitchTracker tracker;
+	tracker.prepare(48000.0, 440.0f);
+	std::vector<float> field(PitchTracker::outputBinCount);
+	std::vector<float> noise(512);
+	std::uint32_t randomState = 0x12345678u;
+	for (int block = 0; block < 150; ++block) {
+		for (auto& sample : noise) {
+			randomState = randomState * 1664525u + 1013904223u;
+			const auto normalised = static_cast<float>((randomState >> 8) & 0x00ffffffu)
+				/ static_cast<float>(0x00ffffffu);
+			sample = 0.3f * (normalised * 2.0f - 1.0f);
+		}
+		tracker.process(noise.data(), static_cast<int>(noise.size()));
+		tracker.calculate(field.data(), static_cast<int>(field.size()));
+	}
+
+	return expect(*std::max_element(field.begin(), field.end()) < 0.2f,
+		"stationary broadband noise should not become a strongly tracked note");
+}
+
+bool testSpectrogramPublishesTrackedPitch()
+{
+	constexpr double sampleRate = 48000.0;
+	constexpr float concertA = 444.0f;
+	const auto c3 = static_cast<double>(concertA) * 0.25 * std::pow(2.0, 3.0 / 12.0);
+	Spectrogram analyzer;
+	analyzer.setConcertAHz(concertA);
+	analyzer.prepare(sampleRate);
+	juce::AudioBuffer<float> block(1, analyzer.hopSize());
+	auto phase = 0.0;
+	for (int iteration = 0; iteration < 100; ++iteration) {
+		fillSine(block, c3, sampleRate, phase);
+		analyzer.process({ &block, 0, block.getNumSamples() });
+	}
+
+	std::vector<float> pitchClass(static_cast<size_t>(analyzer.pitchClassSize()));
+	std::uint64_t pitchSequence = 0;
+	return expect(analyzer.copyLatestPitchClass(
+		pitchClass.data(), static_cast<int>(pitchClass.size()), &pitchSequence),
+		"spectrogram should publish the latest tracked pitch field")
+		&& expect(pitchSequence == analyzer.sequence(),
+			"latest pitch and FFT rows should share a sequence")
+		&& expect(pitchFieldAtSemitonesFromA(pitchClass, 3.0f) > 0.7f,
+			"spectrogram should feed audio and its A4 reference into the pitch tracker");
 }
 
 bool testSilence()
@@ -143,6 +312,25 @@ bool testSpectrumFrameHistoryOrderAndWraparound()
 		}
 	}
 
+	std::vector<float> synchronizedSpectra(frames.size());
+	std::vector<float> synchronizedPitch(static_cast<size_t>(
+		analyzer.pitchClassSize() * Spectrogram::spectrumHistoryCapacity));
+	std::uint64_t synchronizedSequence = 0;
+	if (!expect(analyzer.copyAnalysisFramesAfter(0,
+		synchronizedSpectra.data(), static_cast<int>(synchronizedSpectra.size()),
+		synchronizedPitch.data(), static_cast<int>(synchronizedPitch.size()),
+		&synchronizedSequence) == Spectrogram::spectrumHistoryCapacity,
+		"combined history should copy an aligned pitch row for every FFT row")
+		|| !expect(synchronizedSequence == copiedThrough,
+			"combined FFT and pitch history should report the same sequence")) {
+		return false;
+	}
+	if (!expect(std::all_of(synchronizedPitch.begin(), synchronizedPitch.end(), [](float value) {
+		return std::isfinite(value) && value >= 0.0f && value <= 1.0f;
+	}), "published pitch confidence should stay finite and normalized")) {
+		return false;
+	}
+
 	std::vector<float> newestTwo(static_cast<size_t>(analyzer.spectrumSize() * 2));
 	std::uint64_t newestSequence = 0;
 	if (!expect(analyzer.copySpectrumFramesAfter(
@@ -204,7 +392,10 @@ bool testWaterfallTimelineMapping()
 
 int main()
 {
-	const auto passed = testSilence() && testBinCentredSine() && testResetAndOverflow()
+	const auto passed = testPitchTrackerStablePitchAndDetuning() && testPitchTrackerChordAndRelease()
+		&& testPitchTrackerRejectsBroadbandNoise()
+		&& testSpectrogramPublishesTrackedPitch()
+		&& testSilence() && testBinCentredSine() && testResetAndOverflow()
 		&& testSpectrumFrameHistoryOrderAndWraparound() && testWaterfallTimelineMapping();
 	if (passed)
 		std::cout << "All spectrogram analyzer tests passed\n";

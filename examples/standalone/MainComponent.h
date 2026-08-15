@@ -48,6 +48,7 @@ public:
 
 	void paint(juce::Graphics& graphics) override;
 	void resized() override;
+	bool isRendererReady() const noexcept;
 
 private:
 	void initialiseAudio();

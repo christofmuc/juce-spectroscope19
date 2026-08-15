@@ -22,7 +22,7 @@ When this project is not the top-level CMake project, demo, tests, and dependenc
 
 ## Choosing a target
 
-- Link `juce-spectroscope-analysis` for FFT analysis without GUI or OpenGL code.
+- Link `juce-spectroscope-analysis` for FFT and tracked-pitch analysis without GUI or OpenGL code.
 - Link `juce-spectroscope-ui` for the visualization; it brings in the analysis target.
 - Link `juce-spectroscope19` when the application needs both or for compatibility with older integration code.
 
@@ -37,7 +37,9 @@ analyzer->prepare(sampleRate);
 
 Call `prepare()` whenever the audio sample rate changes. Stop the producer and analysis worker before calling `reset()` or destroying the analyzer.
 
-`Spectrogram::process()` accepts a `juce::AudioSourceChannelInfo`, downmixes all supplied channels to mono, and publishes complete normalized spectrum rows. It may perform windowing, FFTs, logarithms, buffer movement, and synchronization, so it belongs on an analysis worker—not an audio callback.
+`Spectrogram::process()` accepts a `juce::AudioSourceChannelInfo`, downmixes all supplied channels to mono, and publishes complete normalized spectrum rows. In parallel it updates a logarithmic resonator bank, folds matching bins across six octaves, interpolates and tracks note peaks, and publishes a circular pitch-class confidence row with the same sequence number. It may perform windowing, FFTs, logarithms, pitch tracking, buffer movement, and synchronization, so it belongs on an analysis worker—not an audio callback.
+
+Use `copySpectrumFramesAfter()` when only FFT data is needed. `copyAnalysisFramesAfter()` returns synchronized FFT and pitch rows for consumers that need both. `copyLatestPitchClass()` exposes the newest 256-sample circular pitch field, where position zero is concert A and a complete row spans one octave. `setConcertAHz()` changes both the tuning grid and the visualization reference safely at the next analysis hop.
 
 ## Realtime-safe handoff
 
@@ -66,10 +68,7 @@ public:
         widget.setContinuousRedrawing(true);
     }
 
-    ~SpectrumPanel() override
-    {
-        widget.setContinuousRedrawing(false);
-    }
+    ~SpectrumPanel() override { widget.shutdownOpenGL(); }
 
     void resized() override
     {
@@ -82,9 +81,9 @@ private:
 };
 ```
 
-Continuous redrawing follows the OpenGL swap interval and therefore the display refresh rate. The analyzer retains a bounded history of overlapping FFT frames, and each render drains the available rows into the waterfall. This preserves analysis-time resolution when multiple FFT hops complete between display frames. Applications that prefer manual repaint scheduling may leave continuous redrawing disabled and call `refreshData()` from a bounded timer instead.
+Continuous redrawing follows the OpenGL swap interval and therefore the display refresh rate. The analyzer retains bounded, synchronized histories of overlapping FFT and tracked-pitch frames, and each render drains the available rows into both waterfall textures. This preserves analysis-time resolution when multiple FFT hops complete between display frames. Applications that prefer manual repaint scheduling may leave continuous redrawing disabled and call `refreshData()` from a bounded timer instead.
 
-Use `setXAxis(true)` for logarithmic frequency mapping and `setHorizontalMode(true)` for horizontal history.
+Use `setXAxis(true)` for logarithmic frequency mapping and `setHorizontalMode(true)` for horizontal history. `setPitchColourMode(true)` keeps the physical FFT energy in greyscale and overlays circle-of-fifths colour only for temporally tracked tonal peaks. `setConcertAHz()` controls the shared pitch-analysis and display reference.
 
 ## Ownership and shutdown
 

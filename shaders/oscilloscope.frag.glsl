@@ -21,6 +21,8 @@ uniform float spectrumTexelWidth;
 uniform sampler2D audioSampleData;
 uniform sampler2D lutTexture; 
 uniform sampler2D waterfall; 
+uniform sampler2D pitchClassData;
+uniform sampler2D pitchClassHistory;
 
 out vec4 fragmentColour;
 
@@ -52,7 +54,18 @@ float spectralSalience(sampler2D sourceTexture, vec2 texturePosition) {
 	return smoothstep(0.0f, 6.0f, prominenceDb);
 }
 
-vec4 spectrumColour(float decibels, float frequencyPosition, float salience) {
+float pitchClassPosition(float frequencyPosition) {
+	float frequency = frequencyPosition * sampleRate * 0.5f;
+	if (frequency <= 0.0f || concertAHz <= 0.0f)
+		return 0.0f;
+	return fract(log(frequency / concertAHz) / log(2.0f));
+}
+
+float trackedPitchConfidence(sampler2D sourceTexture, float frequencyPosition, float historyPosition) {
+	return texture(sourceTexture, vec2(pitchClassPosition(frequencyPosition), historyPosition)).r;
+}
+
+vec4 spectrumColour(float decibels, float frequencyPosition, float salience, float pitchConfidence) {
 	float linearIntensity = clamp(1.0f + decibels / 100.0f, 0.0f, 1.0f);
 	float intensity = pow(linearIntensity, 1.7f);
 	if (pitchColourMode == 0)
@@ -76,7 +89,10 @@ vec4 spectrumColour(float decibels, float frequencyPosition, float salience) {
 	// the midpoint between notes. The peak position shows whether it is flat or sharp.
 	float tuningSaturation = clamp(1.0f - centsFromNote / 50.0f, 0.0f, 1.0f);
 	float amplitudeConfidence = smoothstep(0.15f, 0.55f, linearIntensity);
-	float saturation = tuningSaturation * salience * amplitudeConfidence;
+	float trackedConfidence = smoothstep(0.05f, 0.55f, pitchConfidence);
+	float spectralPeakConfidence = mix(0.35f, 1.0f, salience);
+	float saturation = tuningSaturation * trackedConfidence
+		* spectralPeakConfidence * amplitudeConfidence;
 	return vec4(hsvToRgb(vec3(hue, saturation, intensity)), 1.0f);
 }
 
@@ -91,7 +107,10 @@ void main()
 		float historyPosition = waterfallStartPosition + x * waterfallHistorySpan;
 		vec2 texturePosition = vec2(frequency, historyPosition);
 		float value = texture(waterfall, texturePosition).r;
-		fragmentColour = spectrumColour(value, frequency, spectralSalience(waterfall, texturePosition));
+		float pitchConfidence = trackedPitchConfidence(
+			pitchClassHistory, frequency, historyPosition);
+		fragmentColour = spectrumColour(
+			value, frequency, spectralSalience(waterfall, texturePosition), pitchConfidence);
 	} else {
 		// Vertical Mode
 		float x = frequencyPosition(gl_FragCoord.x / resolution.x);
@@ -102,8 +121,9 @@ void main()
 		if (y > upperHalfPercentage) {
 			// upper half of screen shows curve
 			if ((y-upperHalfPercentage)/(1-upperHalfPercentage) < amplitudeNormalised)  {
+				float pitchConfidence = trackedPitchConfidence(pitchClassData, x, 0.0f);
 				fragmentColour = spectrumColour(
-					amplitude, x, spectralSalience(audioSampleData, spectrumPosition));
+					amplitude, x, spectralSalience(audioSampleData, spectrumPosition), pitchConfidence);
 			}
 			else {
 				fragmentColour = vec4 (0.0, 0.0, 0.0, 1.0);
@@ -114,7 +134,10 @@ void main()
 			float historyPosition = waterfallStartPosition + historyProgress * waterfallHistorySpan;
 			vec2 texturePosition = vec2(x, historyPosition);
 			float value = texture(waterfall, texturePosition).r;
-			fragmentColour = spectrumColour(value, x, spectralSalience(waterfall, texturePosition));
+			float pitchConfidence = trackedPitchConfidence(
+				pitchClassHistory, x, historyPosition);
+			fragmentColour = spectrumColour(
+				value, x, spectralSalience(waterfall, texturePosition), pitchConfidence);
 		}
 	}
 }

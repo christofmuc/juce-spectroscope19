@@ -20,7 +20,7 @@ public:
 		const auto exitSmokeTest = commandLine.contains("--exit-smoke-test");
 		mainWindow_ = std::make_unique<MainWindow>(getApplicationName(), !exitSmokeTest);
 		if (exitSmokeTest)
-			startTimer(1000);
+			startTimer(1500);
 	}
 
 	void shutdown() override
@@ -39,6 +39,8 @@ private:
 	void timerCallback() override
 	{
 		stopTimer();
+		if (mainWindow_ == nullptr || !mainWindow_->isRendererReady())
+			setApplicationReturnValue(1);
 		systemRequestedQuit();
 	}
 
@@ -51,7 +53,8 @@ private:
 				juce::DocumentWindow::allButtons)
 		{
 			setUsingNativeTitleBar(true);
-			setContentOwned(new MainComponent(startAudio), true);
+			mainComponent_ = new MainComponent(startAudio);
+			setContentOwned(mainComponent_, true);
 			setResizable(true, true);
 			centreWithSize(900, 650);
 			setVisible(true);
@@ -62,7 +65,13 @@ private:
 			juce::JUCEApplication::getInstance()->systemRequestedQuit();
 		}
 
+		bool isRendererReady() const noexcept
+		{
+			return mainComponent_ != nullptr && mainComponent_->isRendererReady();
+		}
+
 	private:
+		MainComponent* mainComponent_ { nullptr };
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
 	};
 

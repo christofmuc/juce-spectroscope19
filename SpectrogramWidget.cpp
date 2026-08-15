@@ -40,6 +40,10 @@ SpectrogramWidget::SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram)
 		fftData_.resize(static_cast<size_t>(analyzer->spectrumSize() * waterfallRows), analyzer->floorDb());
 		pendingSpectra_.resize(
 			static_cast<size_t>(analyzer->spectrumSize() * maximumRowsPerRefresh), analyzer->floorDb());
+		pitchClassDataHistory_.resize(
+			static_cast<size_t>(analyzer->pitchClassSize() * waterfallRows), 0.0f);
+		pendingPitchClasses_.resize(
+			static_cast<size_t>(analyzer->pitchClassSize() * maximumRowsPerRefresh), 0.0f);
 	} else {
 		statusLabel_.setText("Spectrum analyzer unavailable", dontSendNotification);
 	}
@@ -82,6 +86,8 @@ void SpectrogramWidget::newOpenGLContextCreated()
 	uUpperHalfPercentage_ = createUniform(context_, *shader_, "upperHalfPercentage");
 	audioSampleData_ = createUniform(context_, *shader_, "audioSampleData");
 	waterfallTexture_ = createUniform(context_, *shader_, "waterfall");
+	pitchClassDataUniform_ = createUniform(context_, *shader_, "pitchClassData");
+	pitchClassHistoryUniform_ = createUniform(context_, *shader_, "pitchClassHistory");
 	lutTexture_ = createUniform(context_, *shader_, "lutTexture");
 	logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
 	uHorizontal_ = createUniform(context_, *shader_, "horizontalMode");
@@ -97,7 +103,8 @@ void SpectrogramWidget::newOpenGLContextCreated()
 	const auto missingUniform = resolution_ == nullptr || waterfallStartUniform_ == nullptr
 		|| waterfallSpanUniform_ == nullptr
 		|| uUpperHalfPercentage_ == nullptr || audioSampleData_ == nullptr
-		|| waterfallTexture_ == nullptr || lutTexture_ == nullptr
+		|| waterfallTexture_ == nullptr || pitchClassDataUniform_ == nullptr
+		|| pitchClassHistoryUniform_ == nullptr || lutTexture_ == nullptr
 		|| logXAxis_ == nullptr || uHorizontal_ == nullptr
 		|| uPitchColourMode_ == nullptr || uSampleRate_ == nullptr || uConcertAHz_ == nullptr
 		|| uMinimumFrequencyHz_ == nullptr || uSpectrumTexelWidth_ == nullptr;
@@ -110,13 +117,16 @@ void SpectrogramWidget::newOpenGLContextCreated()
 	textureLUT_ = createColorLookupTexture();
 	spectrumData_ = createDataTexture(analyzer->spectrumSize(), 1, analyzer->floorDb());
 	spectrumHistory_ = createDataTexture(analyzer->spectrumSize(), waterfallRows, analyzer->floorDb());
+	pitchClassData_ = createDataTexture(analyzer->pitchClassSize(), 1, 0.0f, true);
+	pitchClassHistory_ = createDataTexture(analyzer->pitchClassSize(), waterfallRows, 0.0f, true);
 
 	context_.extensions.glGenBuffers(1, &vertexBuffer_);
 	context_.extensions.glGenBuffers(1, &elements_);
 	openGLReady_ = textureLUT_ != nullptr && spectrumData_ != nullptr && spectrumHistory_ != nullptr
+		&& pitchClassData_ != nullptr && pitchClassHistory_ != nullptr
 		&& vertexBuffer_ != 0 && elements_ != 0;
 
-	if (openGLReady_)
+	if (openGLReady_.load(std::memory_order_acquire))
 		publishStatus("GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2));
 	else
 		publishStatus("Unable to initialize spectrogram OpenGL resources");
@@ -146,11 +156,16 @@ std::shared_ptr<OpenGLTexture> SpectrogramWidget::createColorLookupTexture()
 }
 
 std::shared_ptr<OpenGLFloatTexture> SpectrogramWidget::createDataTexture(
-	int width, int height, float initialValue)
+	int width, int height, float initialValue, bool repeatHorizontally)
 {
 	auto texture = std::make_shared<OpenGLFloatTexture>();
 	std::vector<GLfloat> emptyPixels(static_cast<size_t>(width * height), initialValue);
 	texture->create(width, height, emptyPixels.data());
+	if (repeatHorizontally) {
+		texture->bind();
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		texture->unbind();
+	}
 	return texture;
 }
 
@@ -163,13 +178,13 @@ void SpectrogramWidget::renderOpenGL()
 		roundToInt(renderingScale * static_cast<float>(getHeight())));
 	OpenGLHelpers::clear(getLookAndFeel().findColour(ResizableWindow::backgroundColourId));
 
-	if (!openGLReady_ || shader_ == nullptr || position_ == nullptr)
+	if (!openGLReady_.load(std::memory_order_acquire) || shader_ == nullptr || position_ == nullptr)
 		return;
 
 	int spectraUpdated = 0;
 	const auto refreshWasRequested = refreshRequested_.exchange(false, std::memory_order_acq_rel);
 	if (isRunning() || refreshWasRequested)
-		spectraUpdated = pullAvailableSpectra();
+		spectraUpdated = pullAvailableFrames();
 
 	shader_->use();
 	resolution_->set(renderingScale * static_cast<float>(getWidth()), renderingScale * static_cast<float>(getHeight()));
@@ -183,6 +198,8 @@ void SpectrogramWidget::renderOpenGL()
 	setUniform(uUpperHalfPercentage_, upperHalfPercentage_);
 	setUniform(audioSampleData_, 1);
 	setUniform(waterfallTexture_, 2);
+	setUniform(pitchClassDataUniform_, 3);
+	setUniform(pitchClassHistoryUniform_, 4);
 	setUniform(uConcertAHz_, concertAHz_.load(std::memory_order_relaxed));
 	if (const auto analyzer = spectrogram_.lock()) {
 		setUniform(uSampleRate_, static_cast<float>(analyzer->sampleRate()));
@@ -198,8 +215,13 @@ void SpectrogramWidget::renderOpenGL()
 	if (const auto analyzer = spectrogram_.lock()) {
 		if (spectraUpdated > 0) {
 			const auto latestRowOffset = static_cast<size_t>(waterfallPosition_ * analyzer->spectrumSize());
+			const auto latestPitchRowOffset = static_cast<size_t>(
+				waterfallPosition_ * analyzer->pitchClassSize());
 			context_.extensions.glActiveTexture(GL_TEXTURE1);
 			spectrumData_->load(fftData_.data() + latestRowOffset, analyzer->spectrumSize(), 1);
+			context_.extensions.glActiveTexture(GL_TEXTURE3);
+			pitchClassData_->load(
+				pitchClassDataHistory_.data() + latestPitchRowOffset, analyzer->pitchClassSize(), 1);
 
 			context_.extensions.glActiveTexture(GL_TEXTURE2);
 			for (int pendingRow = 0; pendingRow < spectraUpdated; ++pendingRow) {
@@ -207,6 +229,14 @@ void SpectrogramWidget::renderOpenGL()
 				const auto rowOffset = static_cast<size_t>(textureRow * analyzer->spectrumSize());
 				const auto* rowData = fftData_.data() + rowOffset;
 				spectrumHistory_->load(rowData, analyzer->spectrumSize(), 1, textureRow);
+			}
+			context_.extensions.glActiveTexture(GL_TEXTURE4);
+			for (int pendingRow = 0; pendingRow < spectraUpdated; ++pendingRow) {
+				const auto textureRow = pendingTextureRows_[static_cast<size_t>(pendingRow)];
+				const auto rowOffset = static_cast<size_t>(
+					textureRow * analyzer->pitchClassSize());
+				const auto* rowData = pitchClassDataHistory_.data() + rowOffset;
+				pitchClassHistory_->load(rowData, analyzer->pitchClassSize(), 1, textureRow);
 			}
 		}
 	}
@@ -220,11 +250,17 @@ void SpectrogramWidget::renderOpenGL()
 	spectrumData_->bind();
 	context_.extensions.glActiveTexture(GL_TEXTURE2);
 	spectrumHistory_->bind();
+	context_.extensions.glActiveTexture(GL_TEXTURE3);
+	pitchClassData_->bind();
+	context_.extensions.glActiveTexture(GL_TEXTURE4);
+	pitchClassHistory_->bind();
 
 #if JUCE_DEBUG
 	assertTextureBound(context_, GL_TEXTURE0, textureLUT_->getTextureID());
 	assertTextureBound(context_, GL_TEXTURE1, spectrumData_->getTextureID());
 	assertTextureBound(context_, GL_TEXTURE2, spectrumHistory_->getTextureID());
+	assertTextureBound(context_, GL_TEXTURE3, pitchClassData_->getTextureID());
+	assertTextureBound(context_, GL_TEXTURE4, pitchClassHistory_->getTextureID());
 #endif
 
 	const GLfloat vertices[] = {
@@ -253,6 +289,10 @@ void SpectrogramWidget::renderOpenGL()
 	spectrumData_->unbind();
 	context_.extensions.glActiveTexture(GL_TEXTURE2);
 	spectrumHistory_->unbind();
+	context_.extensions.glActiveTexture(GL_TEXTURE3);
+	pitchClassData_->unbind();
+	context_.extensions.glActiveTexture(GL_TEXTURE4);
+	pitchClassHistory_->unbind();
 }
 
 void SpectrogramWidget::resized()
@@ -287,8 +327,16 @@ void SpectrogramWidget::setPitchColourMode(bool enabled)
 
 void SpectrogramWidget::setConcertAHz(float frequencyHz)
 {
-	concertAHz_.store(juce::jlimit(400.0f, 480.0f, frequencyHz), std::memory_order_relaxed);
+	const auto clampedFrequency = juce::jlimit(400.0f, 480.0f, frequencyHz);
+	concertAHz_.store(clampedFrequency, std::memory_order_relaxed);
+	if (const auto analyzer = spectrogram_.lock())
+		analyzer->setConcertAHz(clampedFrequency);
 	context_.triggerRepaint();
+}
+
+bool SpectrogramWidget::isOpenGLReady() const noexcept
+{
+	return openGLReady_.load(std::memory_order_acquire);
 }
 
 void SpectrogramWidget::publishStatus(String statusText)
@@ -318,15 +366,23 @@ void SpectrogramWidget::releaseOpenGLResources()
 		spectrumData_->release();
 	if (spectrumHistory_ != nullptr)
 		spectrumHistory_->release();
+	if (pitchClassData_ != nullptr)
+		pitchClassData_->release();
+	if (pitchClassHistory_ != nullptr)
+		pitchClassHistory_->release();
 	textureLUT_.reset();
 	spectrumData_.reset();
 	spectrumHistory_.reset();
+	pitchClassData_.reset();
+	pitchClassHistory_.reset();
 
 	position_.reset();
 	resolution_.reset();
 	audioSampleData_.reset();
 	lutTexture_.reset();
 	waterfallTexture_.reset();
+	pitchClassDataUniform_.reset();
+	pitchClassHistoryUniform_.reset();
 	waterfallStartUniform_.reset();
 	waterfallSpanUniform_.reset();
 	logXAxis_.reset();
@@ -340,7 +396,7 @@ void SpectrogramWidget::releaseOpenGLResources()
 	shader_.reset();
 }
 
-int SpectrogramWidget::pullAvailableSpectra()
+int SpectrogramWidget::pullAvailableFrames()
 {
 	const auto analyzer = spectrogram_.lock();
 	if (analyzer == nullptr)
@@ -353,8 +409,10 @@ int SpectrogramWidget::pullAvailableSpectra()
 		return 0;
 
 	std::uint64_t copiedSequence = 0;
-	const auto copiedRows = analyzer->copySpectrumFramesAfter(lastSequence_, pendingSpectra_.data(),
-		static_cast<int>(pendingSpectra_.size()), &copiedSequence);
+	const auto copiedRows = analyzer->copyAnalysisFramesAfter(lastSequence_,
+		pendingSpectra_.data(), static_cast<int>(pendingSpectra_.size()),
+		pendingPitchClasses_.data(), static_cast<int>(pendingPitchClasses_.size()),
+		&copiedSequence);
 	if (copiedRows <= 0)
 		return 0;
 
@@ -365,6 +423,11 @@ int SpectrogramWidget::pullAvailableSpectra()
 		const auto destinationOffset = static_cast<size_t>(waterfallPosition_ * analyzer->spectrumSize());
 		std::copy_n(pendingSpectra_.data() + sourceOffset, analyzer->spectrumSize(),
 			fftData_.data() + destinationOffset);
+		const auto sourcePitchOffset = static_cast<size_t>(pendingRow * analyzer->pitchClassSize());
+		const auto destinationPitchOffset = static_cast<size_t>(
+			waterfallPosition_ * analyzer->pitchClassSize());
+		std::copy_n(pendingPitchClasses_.data() + sourcePitchOffset, analyzer->pitchClassSize(),
+			pitchClassDataHistory_.data() + destinationPitchOffset);
 	}
 
 	lastSequence_ = copiedSequence;

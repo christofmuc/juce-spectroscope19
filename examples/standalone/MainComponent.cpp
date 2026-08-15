@@ -198,6 +198,11 @@ void MainComponent::resized()
 	spectrogram_.setBounds(area);
 }
 
+bool MainComponent::isRendererReady() const noexcept
+{
+	return spectrogram_.isOpenGLReady();
+}
+
 void MainComponent::initialiseAudio()
 {
 	const auto error = deviceManager_.initialiseWithDefaultDevices(2, 0);
