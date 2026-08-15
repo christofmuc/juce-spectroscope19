@@ -6,146 +6,235 @@
 
 #include "Spectrogram.h"
 
-const int kFFTOrder = 11;
-const int kFFTSize = 1 << kFFTOrder;
-const int kFFTBufferSize = kFFTSize * 2;
-const int kWindowSize = kFFTSize;
-const int kRingBufferReadSize = 2 * kFFTSize; // We read that much data from the ring buffer 
-const int kHopSize = kFFTSize/16;
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <numeric>
 
-float kMinusPerFrame = 2.0f;
-
-Spectrogram::Spectrogram(std::function<void()> updateCallback) :
-	fifo_(2, kFFTSize * 4),
-	readBuffer_(2, kRingBufferReadSize),
-	forwardFFT_(kFFTOrder),
-	window_(kWindowSize, juce::dsp::WindowingFunction<float>::hann, true),
-	updateCallback_(updateCallback),
-	inputDataAvailable_(0)
+namespace {
+int validatedFftOrder(int order)
 {
-	// Reserve data
-	inputData_.resize(kFFTBufferSize, 0.0f); // Sample stream
-	windowedData_.resize(kFFTBufferSize);
-	fft_.resize(kFFTBufferSize);
-	peakData_.resize(kFFTBufferSize, -100.0f);
+	return juce::jlimit(5, 16, order);
+}
 
-	std::vector<float> windowSum(kWindowSize, 1.0f);
-	window_.multiplyWithWindowingTable(windowSum.data(), kWindowSize);
-	sum_ = 0;
-	for (float s : windowSum) {
-		sum_ += s;
+int fftSizeForOrder(int order)
+{
+	return 1 << validatedFftOrder(order);
+}
+
+int validatedHopSize(int requestedHopSize, int fftSize)
+{
+	if (requestedHopSize <= 0)
+		return fftSize / 16;
+
+	return juce::jlimit(1, fftSize, requestedHopSize);
+}
+}
+
+Spectrogram::Spectrogram(int fftOrder, int requestedHopSize, float requestedFloorDb)
+	: fftOrder_(validatedFftOrder(fftOrder))
+	, fftSize_(fftSizeForOrder(fftOrder_))
+	, hopSize_(validatedHopSize(requestedHopSize, fftSize_))
+	, floorDb_(juce::jmin(-1.0f, requestedFloorDb))
+	, fifoCapacity_(fftSize_ * 8)
+	, fifo_(fifoCapacity_)
+	, fifoBuffer_(1, fifoCapacity_)
+	, hopBuffer_(1, hopSize_)
+	, forwardFFT_(fftOrder_)
+	, window_(static_cast<size_t>(fftSize_), juce::dsp::WindowingFunction<float>::hann, false)
+	, inputData_(static_cast<size_t>(fftSize_), 0.0f)
+	, windowedData_(static_cast<size_t>(fftSize_), 0.0f)
+	, fftWork_(static_cast<size_t>(fftSize_ * 2), 0.0f)
+	, nextSpectrum_(static_cast<size_t>(fftSize_ / 2), floorDb_)
+	, publishedSpectrum_(static_cast<size_t>(fftSize_ / 2), floorDb_)
+{
+	std::vector<float> windowValues(static_cast<size_t>(fftSize_), 1.0f);
+	window_.multiplyWithWindowingTable(windowValues.data(), static_cast<size_t>(fftSize_));
+	const auto windowSum = std::accumulate(windowValues.begin(), windowValues.end(), 0.0f);
+	windowMagnitudeScale_ = windowSum > 0.0f ? 2.0f / windowSum : 1.0f;
+}
+
+int Spectrogram::fftSize() const noexcept
+{
+	return fftSize_;
+}
+
+int Spectrogram::spectrumSize() const noexcept
+{
+	return fftSize_ / 2;
+}
+
+int Spectrogram::hopSize() const noexcept
+{
+	return hopSize_;
+}
+
+float Spectrogram::floorDb() const noexcept
+{
+	return floorDb_;
+}
+
+void Spectrogram::prepare(double newSampleRate)
+{
+	sampleRate_.store(newSampleRate > 0.0 ? newSampleRate : 0.0, std::memory_order_relaxed);
+	reset();
+}
+
+void Spectrogram::reset()
+{
+	fifo_.reset();
+	fifoBuffer_.clear();
+	hopBuffer_.clear();
+	std::fill(inputData_.begin(), inputData_.end(), 0.0f);
+	std::fill(windowedData_.begin(), windowedData_.end(), 0.0f);
+	std::fill(fftWork_.begin(), fftWork_.end(), 0.0f);
+	std::fill(nextSpectrum_.begin(), nextSpectrum_.end(), floorDb_);
+	inputDataAvailable_ = 0;
+	droppedSamples_.store(0, std::memory_order_relaxed);
+
+	{
+		const juce::ScopedLock lock(publishedSpectrumLock_);
+		std::fill(publishedSpectrum_.begin(), publishedSpectrum_.end(), floorDb_);
+		sequence_.store(0, std::memory_order_release);
 	}
 }
 
-Spectrogram::~Spectrogram()
+int Spectrogram::process(const juce::AudioSourceChannelInfo& data)
 {
-}
+	if (data.buffer == nullptr || data.numSamples <= 0)
+		return 0;
 
-int Spectrogram::fftSize() const
-{
-	return kFFTSize;
-}
+	writeInput(data);
 
-void Spectrogram::newData(const juce::AudioSourceChannelInfo& data)
-{
-	fifo_.addToFifo(data);
+	int rowsProduced = 0;
+	while (fifo_.getNumReady() >= hopSize_) {
+		readHop();
+		appendHop();
 
-	// Check if there is enough data available for the next block
-	if (fifo_.availableSamples() >= kHopSize) {
-		prepareBufferForSpectrum();
-		juce::MessageManager::callAsync([this]() {
-			updateCallback_();
-		});
-	}
-}
-
-void Spectrogram::getData(float *out)
-{
-	juce::ScopedLock sl(lock);
-	std::copy(fft_.data(), fft_.data() + kFFTSize / 2, out);
-}
-
-float * Spectrogram::peakHoldData()
-{
-	return peakData_.data();
-}
-
-void Spectrogram::prepareBufferForSpectrum()
-{
-	// Get the next kHopSize samples that are ready
-	readBuffer_.clear();
-	fifo_.readFromFifo(&readBuffer_, kHopSize);
-
-	if (inputDataAvailable_ < kFFTSize) {
-		// Not enough data, append newest hop and return to wait for new data
-		for (int i = 0; i < 1 /*readBuffer_.getNumChannels()*/; ++i)
-		{
-			juce::FloatVectorOperations::add(inputData_.data() + inputDataAvailable_, readBuffer_.getReadPointer(i, 0), kHopSize);
+		if (inputDataAvailable_ == fftSize_) {
+			calculateSpectrum();
+			++rowsProduced;
 		}
-		inputDataAvailable_ += kHopSize;
+	}
+
+	return rowsProduced;
+}
+
+bool Spectrogram::copyLatestSpectrum(float* destination, int destinationSize, std::uint64_t* copiedSequence) const
+{
+	if (destination == nullptr || destinationSize < spectrumSize())
+		return false;
+
+	const auto currentSequence = sequence_.load(std::memory_order_acquire);
+	if (currentSequence == 0)
+		return false;
+
+	const juce::ScopedLock lock(publishedSpectrumLock_);
+	std::copy(publishedSpectrum_.begin(), publishedSpectrum_.end(), destination);
+	if (copiedSequence != nullptr)
+		*copiedSequence = sequence_.load(std::memory_order_relaxed);
+	return true;
+}
+
+std::uint64_t Spectrogram::sequence() const noexcept
+{
+	return sequence_.load(std::memory_order_acquire);
+}
+
+std::uint64_t Spectrogram::droppedSamples() const noexcept
+{
+	return droppedSamples_.load(std::memory_order_relaxed);
+}
+
+double Spectrogram::sampleRate() const noexcept
+{
+	return sampleRate_.load(std::memory_order_relaxed);
+}
+
+int Spectrogram::writeInput(const juce::AudioSourceChannelInfo& data)
+{
+	const auto availableChannels = data.buffer->getNumChannels();
+	const auto validStart = juce::jlimit(0, data.buffer->getNumSamples(), data.startSample);
+	const auto availableSamples = data.buffer->getNumSamples() - validStart;
+	const auto requestedSamples = juce::jlimit(0, availableSamples, data.numSamples);
+
+	int start1 = 0;
+	int size1 = 0;
+	int start2 = 0;
+	int size2 = 0;
+	fifo_.prepareToWrite(requestedSamples, start1, size1, start2, size2);
+	const auto writtenSamples = size1 + size2;
+	const auto gain = availableChannels > 0 ? 1.0f / static_cast<float>(availableChannels) : 0.0f;
+
+	auto writeSection = [&](int destinationStart, int sourceStart, int count) {
+		if (count <= 0)
+			return;
+
+		fifoBuffer_.clear(0, destinationStart, count);
+		for (int channel = 0; channel < availableChannels; ++channel)
+			fifoBuffer_.addFrom(0, destinationStart, *data.buffer, channel, sourceStart, count, gain);
+	};
+
+	writeSection(start1, validStart, size1);
+	writeSection(start2, validStart + size1, size2);
+	fifo_.finishedWrite(writtenSamples);
+
+	if (writtenSamples < requestedSamples)
+		droppedSamples_.fetch_add(static_cast<std::uint64_t>(requestedSamples - writtenSamples), std::memory_order_relaxed);
+
+	return writtenSamples;
+}
+
+void Spectrogram::readHop()
+{
+	int start1 = 0;
+	int size1 = 0;
+	int start2 = 0;
+	int size2 = 0;
+	fifo_.prepareToRead(hopSize_, start1, size1, start2, size2);
+
+	hopBuffer_.clear();
+	if (size1 > 0)
+		hopBuffer_.copyFrom(0, 0, fifoBuffer_, 0, start1, size1);
+	if (size2 > 0)
+		hopBuffer_.copyFrom(0, size1, fifoBuffer_, 0, start2, size2);
+
+	fifo_.finishedRead(size1 + size2);
+}
+
+void Spectrogram::appendHop()
+{
+	const auto* hop = hopBuffer_.getReadPointer(0);
+	if (inputDataAvailable_ < fftSize_) {
+		const auto samplesToCopy = juce::jmin(hopSize_, fftSize_ - inputDataAvailable_);
+		std::copy_n(hop, samplesToCopy, inputData_.begin() + inputDataAvailable_);
+		inputDataAvailable_ += samplesToCopy;
 		return;
 	}
 
-	// In this case, the buffer is already full and we can just append the new hop data
-	// First, move one hop forward
-	for (int i = kHopSize; i < kFFTSize; i++) inputData_[i - kHopSize] = inputData_[i];
-	for (int i = 1; i <= kHopSize; i++) inputData_[kFFTSize - i] = 0.0f;
+	std::memmove(inputData_.data(), inputData_.data() + hopSize_,
+		static_cast<size_t>(fftSize_ - hopSize_) * sizeof(float));
+	std::copy_n(hop, hopSize_, inputData_.end() - hopSize_);
+}
 
-	// Sum channels together, appending the new hop
-	
-	for (int i = 0; i < 1 /*readBuffer_.getNumChannels()*/; ++i)
+void Spectrogram::calculateSpectrum()
+{
+	std::copy(inputData_.begin(), inputData_.end(), windowedData_.begin());
+	window_.multiplyWithWindowingTable(windowedData_.data(), static_cast<size_t>(fftSize_));
+
+	std::fill(fftWork_.begin(), fftWork_.end(), 0.0f);
+	std::copy(windowedData_.begin(), windowedData_.end(), fftWork_.begin());
+	forwardFFT_.performFrequencyOnlyForwardTransform(fftWork_.data());
+
+	for (int bin = 0; bin < spectrumSize(); ++bin) {
+		const auto normalizedMagnitude = fftWork_[static_cast<size_t>(bin)] * windowMagnitudeScale_;
+		nextSpectrum_[static_cast<size_t>(bin)] = juce::jlimit(
+			floorDb_, 0.0f, juce::Decibels::gainToDecibels(normalizedMagnitude, floorDb_));
+	}
+
 	{
-		juce::FloatVectorOperations::add(inputData_.data() + kFFTSize - kHopSize, readBuffer_.getReadPointer(i, 0), kHopSize);
-	}
-	//FloatVectorOperations::multiply(&fftData_[0], 1.0f/readBuffer_.getNumChannels(), (int) kFFTSize);
-
-	// Check our setup
-	jassert(inputData_.size() == (1 << kFFTOrder) * 2);
-	jassert(kFFTSize >= kWindowSize);
-
-	//int hN = kFFTSize / 2 + 1;			// Size of positive spectrum including sample 0
-	int hM1 = (kWindowSize + 1) / 2;	// half analysis window rounded
-	int hM2 = (kWindowSize) / 2;		// half analysis window floored
-
-	// Window incoming data
-	std::copy(inputData_.data(), inputData_.data() + kWindowSize, windowedData_.begin());
-	window_.multiplyWithWindowingTable(windowedData_.data(), kWindowSize);
-	//FloatVectorOperations::multiply(windowedData_.data(), 1.0f / sum_, kWindowSize);
-
-	// Lock the FFT data section
-	juce::ScopedLock sl(lock);
-
-	// Zero-phase windowing
-	juce::FloatVectorOperations::clear(fft_.data(), kFFTSize * 2);
-	for (int i = 0; i < hM1; i++) fft_[i] = windowedData_[hM2 + i];
-	for (int i = 0; i < hM2; i++) fft_[kFFTSize - hM2 + i] = windowedData_[i];
-
-	// Calculate the FFT
-	forwardFFT_.performFrequencyOnlyForwardTransform(fft_.data());
-
-	for (int i = 0; i < kFFTSize / 2; i++) {
-		if (fft_[i] < 1e-6f) fft_[i] = 1e-6f;
-	}
-
-	//FloatVectorOperations::multiply(&fftData_[0], (kFFTSize/2.0f), (int) kFFTSize/2);
-	for (int i = 0; i < kFFTSize / 2; i++) {
-		fft_[i] = std::log10(fft_[i]);
-	}
-	juce::FloatVectorOperations::multiply(fft_.data(), 20.0f, kFFTSize / 2);
-
-	float max = -100.0;
-	for (float f : fft_) if (f > max) max = f;
-
-	// peak hold
-	for (int i = 0; i < kFFTSize / 2; i++) {
-		if (fft_[i] > peakData_[i]) {
-			peakData_[i] = fft_[i];
-		}
-		else {
-			peakData_[i] -= kMinusPerFrame;
-			if (peakData_[i] < -100.0f) {
-				peakData_[i] = 100.0f;
-			}
-		}
+		const juce::ScopedLock lock(publishedSpectrumLock_);
+		std::copy(nextSpectrum_.begin(), nextSpectrum_.end(), publishedSpectrum_.begin());
+		sequence_.fetch_add(1, std::memory_order_release);
 	}
 }

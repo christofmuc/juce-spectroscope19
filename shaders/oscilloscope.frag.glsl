@@ -4,7 +4,7 @@
    Dual licensed: Distributed under Affero GPL license by default, an MIT license is available for purchase
 */
 
-#version 130
+#version 150
 
 uniform vec2  resolution;
 uniform int xAxisLog;
@@ -15,6 +15,8 @@ uniform float upperHalfPercentage;
 uniform sampler2D audioSampleData;
 uniform sampler2D lutTexture; 
 uniform sampler2D waterfall; 
+
+out vec4 fragmentColour;
 
 float logXAxis(float x) {
 	return 1.0f - exp(log(1.0f - x / resolution.x) * 0.2f);
@@ -36,7 +38,7 @@ void main()
 		}
 		float value = texture(waterfall, vec2(y, (x + waterfallPosition))).r;
 		value = 1.0 + value / 100.0;
-		gl_FragColor = texture(lutTexture, vec2(value, 0));
+		fragmentColour = texture(lutTexture, vec2(value, 0));
 	} else {
 		// Vertical Mode
 		float x;
@@ -51,17 +53,17 @@ void main()
 		if (y > upperHalfPercentage) {
 			// upper half of screen shows curve
 			if ((y-upperHalfPercentage)/(1-upperHalfPercentage) < amplitude)  {
-				gl_FragColor = texture(lutTexture, vec2(amplitude, 0));
+				fragmentColour = texture(lutTexture, vec2(amplitude, 0));
 			}
 			else {
-				gl_FragColor = vec4 (0.0, 0.0, 0.0, 1.0);
+				fragmentColour = vec4 (0.0, 0.0, 0.0, 1.0);
 			}
 		} else {
 			// lower half shows history
 			//float value = texture(waterfall, vec2(x, waterfallPosition)).r;
 			float value = texture(waterfall, vec2(x, (waterfallPosition - (1-y/upperHalfPercentage)))).r;
 			value = 1 + value / 100.0;
-			gl_FragColor = texture(lutTexture, vec2(value, 0));
+			fragmentColour = texture(lutTexture, vec2(value, 0));
 		}
 	}
 }

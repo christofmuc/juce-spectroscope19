@@ -4,7 +4,15 @@ This is a pretty OpenGL spectroscope for the awesome [JUCE](https://github.com/W
 
 ## Usage
 
-This repository is meant to be included as a git submodule in a main project, see for instance [JammerNetz](https://github.com/christofmuc/JammerNetz) for an example how this is used.
+This repository is meant to be included as a git submodule in a main project, see for instance [JammerNetz](https://github.com/christofmuc/JammerNetz) for an example how this is used. The parent project must provide a `juce-static` target with JUCE audio basics, core, DSP, GUI basics, graphics, and OpenGL support.
+
+The CMake build exposes three targets:
+
+- `juce-spectroscope-analysis`: headless FFT analysis;
+- `juce-spectroscope-ui`: OpenGL visualization;
+- `juce-spectroscope19`: compatibility target linking both.
+
+Shader validation is optional. Enable `JUCE_SPECTROSCOPE_VALIDATE_SHADERS` to use an installed `glslangValidator`; configuration never downloads a moving tool archive.
 
 ## Example
 
@@ -21,9 +29,8 @@ Please understand that this software uses the following third party libraries, a
 For the sake of easy accessibility, the cmake build of this example software automatically downloads and uses the following components:
 
   1. The awesome [JUCE](https://juce.com/) library for cross-platform C++ development.
-  2. For wrangling OpenGL in its complexity I say thank you to the [GLEW](http://glew.sourceforge.net/) library.
-  3. For building complex projects I use CMake, and with [juce-cmake](https://github.com/remymuller/juce-cmake) this becomes much easier! 
-  4. On Windows, nothing beats for me ASIO drivers for high-quality low-latency audio drivers, and our thanks go to the company [Steinberg](https://www.steinberg.net/de/home.html) for still providing their [ASIO SDK](https://www.steinberg.net/de/company/developer.html). Please check out their licensing especially!
+  2. CMake for integrating the analyzer and UI targets into a parent project.
+  3. An optional installed [glslangValidator](https://github.com/KhronosGroup/glslang) for build-time shader validation.
 
 ## Licensing
 

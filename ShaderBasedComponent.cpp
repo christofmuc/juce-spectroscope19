@@ -6,10 +6,11 @@
 
 #include "ShaderBasedComponent.h"
 
-ShaderBasedComponent::ShaderBasedComponent() : isRunning_(false)
+ShaderBasedComponent::ShaderBasedComponent()
 {
 	context_.setOpenGLVersionRequired(juce::OpenGLContext::OpenGLVersion::openGL3_2);
 	context_.setRenderer(this);
+	context_.setContinuousRepainting(false);
 	context_.attachTo(*this);
 }
 
@@ -17,17 +18,18 @@ ShaderBasedComponent::~ShaderBasedComponent()
 {
 	setContinuousRedrawing(false);
 	context_.detach();
+	context_.setRenderer(nullptr);
 }
 
 void ShaderBasedComponent::setContinuousRedrawing(bool run)
 {
 	context_.setContinuousRepainting(run);
-	isRunning_ = run;
+	isRunning_.store(run, std::memory_order_relaxed);
 }
 
 bool ShaderBasedComponent::isRunning() const
 {
-	return isRunning_;
+	return isRunning_.load(std::memory_order_relaxed);
 }
 
 juce::String ShaderBasedComponent::loadShader(juce::String const& filename)

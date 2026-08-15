@@ -26,6 +26,13 @@ bool OpenGLFloatTexture::isValidSize(int width, int height)
 
 void OpenGLFloatTexture::load(const GLfloat *data, int width, int height, int row) 
 {
+	jassert(data != nullptr);
+	jassert(textureID_ != 0);
+	jassert(width > 0 && height > 0);
+	jassert(row >= 0 && row + height <= height_);
+	if (data == nullptr || textureID_ == 0 || width <= 0 || height <= 0 || row < 0 || row + height > height_)
+		return;
+
 	bind();
 	JUCE_CHECK_OPENGL_ERROR
 	
@@ -35,6 +42,10 @@ void OpenGLFloatTexture::load(const GLfloat *data, int width, int height, int ro
 
 void OpenGLFloatTexture::create(const int w, const int h, const GLfloat * pixels)
 {
+	jassert(w > 0 && h > 0);
+	if (w <= 0 || h <= 0)
+		return;
+
 	context_ = juce::OpenGLContext::getCurrentContext();
 	jassert(context_ != nullptr);
 
@@ -82,13 +93,16 @@ void OpenGLFloatTexture::release()
 {
 	if (textureID_ != 0)
 	{
-		jassert(juce::OpenGLContext::getCurrentContext() == context_);
 		if (context_ == juce::OpenGLContext::getCurrentContext())
 		{
 			juce::gl::glDeleteTextures(1, &textureID_);
 			textureID_ = 0;
 			width_ = 0;
 			height_ = 0;
+		}
+		else
+		{
+			DBG("OpenGLFloatTexture must be released while its owning context is current");
 		}
 	}
 }

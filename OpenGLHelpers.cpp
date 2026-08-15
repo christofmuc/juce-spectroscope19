@@ -95,6 +95,7 @@ void checkGLError(const char* file, const int line)
 
 		auto errorMsg = getGLErrorMessage(e);
 		DBG("***** " << errorMsg << "  at " << file << " : " << line);
+		juce::ignoreUnused(errorMsg);
 		jassertfalse;
 	}
 }

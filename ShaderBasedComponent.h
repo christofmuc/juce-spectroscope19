@@ -8,12 +8,14 @@
 
 #include <juce_core/juce_core.h>
 
+#include <atomic>
+
 #include "OpenGLHelpers.h"
 
 class ShaderBasedComponent : public juce::Component, public juce::OpenGLRenderer {
 public:
 	ShaderBasedComponent();
-	virtual ~ShaderBasedComponent();
+	~ShaderBasedComponent() override;
 
 	void setContinuousRedrawing(bool run);
 	bool isRunning() const;
@@ -32,5 +34,5 @@ public:
 
 protected:
 	juce::OpenGLContext context_;
-	bool isRunning_;
+	std::atomic<bool> isRunning_ { false };
 };

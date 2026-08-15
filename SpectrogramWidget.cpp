@@ -6,271 +6,272 @@
 
 #include "SpectrogramWidget.h"
 
+#include "BinaryResources.h"
 #include "OpenGLHelpers.h"
 
-#include "BinaryResources.h"
+#include <algorithm>
 
 using namespace juce;
 using namespace juce::gl;
 
-SpectogramWidget::SpectogramWidget(std::weak_ptr<Spectrogram> spectrogram) :
-	spectrogram_(spectrogram)
+namespace {
+constexpr int waterfallRows = 512;
+}
+
+SpectrogramWidget::SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram)
+	: spectrogram_(std::move(spectrogram))
 {
-	// Setup GUI Overlay Label: Status of Shaders, compiler errors, etc.
 	addAndMakeVisible(statusLabel_);
 	statusLabel_.setJustificationType(Justification::topLeft);
-	//statusLabel_.setFont(Font(14.0f));
 
-	if (!spectrogram_.expired()) {
-		fftData_.resize(spectrogram_.lock()->fftSize() / 2 * 512); // History of the last 512 FFTs
-	}
-	else {
-		// Not so good, where is your spectrogram instance gone?
-		jassert(false);
+	if (const auto analyzer = spectrogram_.lock()) {
+		fftData_.resize(static_cast<size_t>(analyzer->spectrumSize() * waterfallRows), analyzer->floorDb());
+	} else {
+		statusLabel_.setText("Spectrum analyzer unavailable", dontSendNotification);
 	}
 }
 
-void SpectogramWidget::newOpenGLContextCreated()
+void SpectrogramWidget::newOpenGLContextCreated()
 {
-	static bool glewInitialized = false;
-	if (!glewInitialized) {
-		//GLenum err = glewInit();
-		//ignoreUnused(err);
-		glewInitialized = true;
+	releaseOpenGLResources();
+	openGLReady_ = false;
+
+	const std::string vertexShader(
+		reinterpret_cast<const char*>(oscilloscope_vert_glsl), oscilloscope_vert_glsl_size);
+	const std::string fragmentShader(
+		reinterpret_cast<const char*>(oscilloscope_frag_glsl), oscilloscope_frag_glsl_size);
+
+	if (!context_.setSwapInterval(1)) {
+		DBG("The OpenGL driver did not accept the requested swap interval");
 	}
 
-	std::string vertexShader;
-	std::string fragmentShader;
-
-	//if (GLEW_VERSION_3_0) {
-		vertexShader = std::string((const char *)oscilloscope_vert_glsl, oscilloscope_vert_glsl_size);
-		fragmentShader = std::string((const char *)oscilloscope_frag_glsl, oscilloscope_frag_glsl_size);
-    /*}
-	else {
-		std::cerr << "System does not support OpenGL 3.0, fatal!" << std::endl;
-		exit(-1);
-	}*/
-
-#ifdef WIN32
-	// Try to turn on VSync, if you are on Windows and your driver supports it! I had to update my NVidia driver
-	//if (WGLEW_EXT_swap_control) {
-		//wglSwapIntervalEXT(1);
-		JUCE_CHECK_OPENGL_ERROR
-	//}
-#endif
-	bool worked = context_.setSwapInterval(1);
-	jassert(worked);
-	ignoreUnused(worked);
-
-	JUCE_CHECK_OPENGL_ERROR
 	shader_ = std::make_unique<OpenGLShaderProgram>(context_);
-	JUCE_CHECK_OPENGL_ERROR
-
-	String statusText;
-	if (shader_->addVertexShader(vertexShader)
-		&& shader_->addFragmentShader(fragmentShader)
-		&& shader_->link())
-	{
-		JUCE_CHECK_OPENGL_ERROR
-		shader_->use();
-		JUCE_CHECK_OPENGL_ERROR
-
-		resolution_ = createUniform(context_, *shader_, "resolution");
-		waterfallUniform_ = createUniform(context_, *shader_, "waterfallPosition");
-		uUpperHalfPercentage_ = createUniform(context_, *shader_, "upperHalfPercentage");
-		audioSampleData_ = createUniform(context_, *shader_, "audioSampleData");
-		waterfallTexture_ = createUniform(context_, *shader_, "waterfall");
-		lutTexture_ = createUniform(context_, *shader_, "lutTexture");
-		logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
-		uHorizontal_ = createUniform(context_, *shader_, "horizontalMode");
-		JUCE_CHECK_OPENGL_ERROR
-
-		textureLUT_ = createColorLookupTexture();
-		if (!spectrogram_.expired()) {
-			spectrumData_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 1);
-			spectrumHistory_ = createDataTexture(spectrogram_.lock()->fftSize() / 2, 512);
-		}
-		JUCE_CHECK_OPENGL_ERROR
-
-		statusText = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
+	if (!shader_->addVertexShader(vertexShader)
+		|| !shader_->addFragmentShader(fragmentShader)
+		|| !shader_->link()) {
+		publishStatus("Spectrogram shader error: " + shader_->getLastError());
+		return;
 	}
-	else
-	{
-		statusText = shader_->getLastError();
+
+	shader_->use();
+	position_ = std::make_unique<OpenGLShaderProgram::Attribute>(*shader_, "position");
+	resolution_ = createUniform(context_, *shader_, "resolution");
+	waterfallUniform_ = createUniform(context_, *shader_, "waterfallPosition");
+	uUpperHalfPercentage_ = createUniform(context_, *shader_, "upperHalfPercentage");
+	audioSampleData_ = createUniform(context_, *shader_, "audioSampleData");
+	waterfallTexture_ = createUniform(context_, *shader_, "waterfall");
+	lutTexture_ = createUniform(context_, *shader_, "lutTexture");
+	logXAxis_ = createUniform(context_, *shader_, "xAxisLog");
+	uHorizontal_ = createUniform(context_, *shader_, "horizontalMode");
+
+	const auto analyzer = spectrogram_.lock();
+	const auto invalidAttribute = position_ == nullptr
+		|| position_->attributeID == static_cast<GLuint>(-1);
+	const auto missingUniform = resolution_ == nullptr || waterfallUniform_ == nullptr
+		|| uUpperHalfPercentage_ == nullptr || audioSampleData_ == nullptr
+		|| waterfallTexture_ == nullptr || lutTexture_ == nullptr
+		|| logXAxis_ == nullptr || uHorizontal_ == nullptr;
+	if (analyzer == nullptr || invalidAttribute || missingUniform) {
+		publishStatus(analyzer == nullptr ? "Spectrum analyzer unavailable"
+			: "Spectrogram shader interface is incomplete");
+		return;
 	}
+
+	textureLUT_ = createColorLookupTexture();
+	spectrumData_ = createDataTexture(analyzer->spectrumSize(), 1, analyzer->floorDb());
+	spectrumHistory_ = createDataTexture(analyzer->spectrumSize(), waterfallRows, analyzer->floorDb());
 
 	context_.extensions.glGenBuffers(1, &vertexBuffer_);
-	JUCE_CHECK_OPENGL_ERROR
 	context_.extensions.glGenBuffers(1, &elements_);
-	JUCE_CHECK_OPENGL_ERROR
+	openGLReady_ = textureLUT_ != nullptr && spectrumData_ != nullptr && spectrumHistory_ != nullptr
+		&& vertexBuffer_ != 0 && elements_ != 0;
 
-	MessageManager::callAsync([this, statusText]() {
-		statusLabel_.setText(statusText, dontSendNotification);
-	});
+	if (openGLReady_)
+		publishStatus("GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2));
+	else
+		publishStatus("Unable to initialize spectrogram OpenGL resources");
+	refreshRequested_.store(true, std::memory_order_release);
 }
 
-void SpectogramWidget::openGLContextClosing()
+void SpectrogramWidget::openGLContextClosing()
 {
-	if (textureLUT_) textureLUT_->release();
-	if (spectrumData_) spectrumData_->release();
-	if (spectrumHistory_) spectrumHistory_->release();
-	shader_->release();
+	releaseOpenGLResources();
 }
 
-std::shared_ptr<OpenGLTexture> SpectogramWidget::createColorLookupTexture() {
-	std::shared_ptr<OpenGLTexture> texture = std::make_shared<OpenGLTexture>();
-	PixelARGB pixels[256];
+std::shared_ptr<OpenGLTexture> SpectrogramWidget::createColorLookupTexture()
+{
+	auto texture = std::make_shared<OpenGLTexture>();
+	PixelARGB pixels[256] {};
 	pixels[0] = PixelARGB(255, 0, 0, 0);
 	pixels[255] = PixelARGB(255, 255, 255, 0);
-	for (int i = 1; i < 32; i++) {
-		pixels[i] = PixelARGB(255, 255, (uint8)(255 - i * 8), 0);
-		pixels[255 - i] = PixelARGB(255, 255, (uint8)(255 - i * 8), 0);
-	}
-	for (int i = 0; i < 96; i++) {
-		pixels[32 + i] = PixelARGB(255, (uint8)(255 - (i * 4 / 3)), 0, (uint8)(i * 4 / 3));
-		pixels[223 - i] = PixelARGB(255, (uint8)(255 - (i * 4 / 3)), 0, (uint8)(i * 4 / 3));
-	}
-	for (int i = 0; i < 256; i++) {
-		//pixels[i] = PixelARGB(255, i, i, i);
-	}
-	pixels[0] = PixelARGB(255, 0, 0, 0);
-	pixels[255] = PixelARGB(255, 255, 255, 0);
-	for (int i = 1; i < 64; i++) {
-		pixels[255 - i] = PixelARGB(255, 255, (uint8)(255 - i * 4), 0);
-	}
-	for (int i = 0; i < 192; i++) {
-		pixels[191 - i] = PixelARGB(255, (uint8)(128 - (i * 2 / 3)), 0, (uint8)(i * 2 / 3));
-	}
+	for (int i = 1; i < 64; ++i)
+		pixels[255 - i] = PixelARGB(255, 255, static_cast<uint8>(255 - i * 4), 0);
+	for (int i = 0; i < 192; ++i)
+		pixels[191 - i] = PixelARGB(255, static_cast<uint8>(128 - i * 2 / 3), 0, static_cast<uint8>(i * 2 / 3));
+
 	texture->bind();
-	JUCE_CHECK_OPENGL_ERROR
 	texture->loadARGB(pixels, 256, 1);
-	JUCE_CHECK_OPENGL_ERROR
 	texture->unbind();
-	JUCE_CHECK_OPENGL_ERROR
 	return texture;
 }
 
-std::shared_ptr<OpenGLFloatTexture> SpectogramWidget::createDataTexture(int w, int h) {
+std::shared_ptr<OpenGLFloatTexture> SpectrogramWidget::createDataTexture(
+	int width, int height, float initialValue)
+{
 	auto texture = std::make_shared<OpenGLFloatTexture>();
-	texture->bind();
-	JUCE_CHECK_OPENGL_ERROR
-		GLfloat *emptyPixels = new GLfloat[w * h];
-	texture->create(w, h, emptyPixels);
-	delete emptyPixels;
-	texture->unbind();
-	JUCE_CHECK_OPENGL_ERROR
+	std::vector<GLfloat> emptyPixels(static_cast<size_t>(width * height), initialValue);
+	texture->create(width, height, emptyPixels.data());
 	return texture;
 }
 
-void SpectogramWidget::renderOpenGL()
+void SpectrogramWidget::renderOpenGL()
 {
 	jassert(OpenGLHelpers::isContextActive());
 
-	auto renderingScale = (float)context_.getRenderingScale();
-	glViewport(0, 0, roundToInt(renderingScale * getWidth()), roundToInt(renderingScale * getHeight()));
-
+	const auto renderingScale = static_cast<float>(context_.getRenderingScale());
+	glViewport(0, 0, roundToInt(renderingScale * static_cast<float>(getWidth())),
+		roundToInt(renderingScale * static_cast<float>(getHeight())));
 	OpenGLHelpers::clear(getLookAndFeel().findColour(ResizableWindow::backgroundColourId));
 
-	JUCE_CHECK_OPENGL_ERROR
-	glEnable(GL_BLEND);
-	JUCE_CHECK_OPENGL_ERROR
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	JUCE_CHECK_OPENGL_ERROR
-	//glEnable(GL_TEXTURE_2D);
-	//JUCE_CHECK_OPENGL_ERROR
+	if (!openGLReady_ || shader_ == nullptr || position_ == nullptr)
+		return;
+
+	const auto spectrumUpdated = refreshRequested_.exchange(false, std::memory_order_acq_rel)
+		&& pullLatestSpectrum();
 
 	shader_->use();
-
-	// Setup the Uniforms for use in the Shader
-	resolution_->set((GLfloat)renderingScale * getWidth(), (GLfloat)renderingScale * getHeight());
-	JUCE_CHECK_OPENGL_ERROR
-
+	resolution_->set(renderingScale * static_cast<float>(getWidth()), renderingScale * static_cast<float>(getHeight()));
 	setUniform(lutTexture_, 0);
-	setUniform(logXAxis_, xLogAxis_);
-	setUniform(uHorizontal_, horizontal_);
-	setUniform(waterfallUniform_, waterfallPosition / 512.0f);
+	setUniform(logXAxis_, xLogAxis_.load(std::memory_order_relaxed) ? 1 : 0);
+	setUniform(uHorizontal_, horizontal_.load(std::memory_order_relaxed) ? 1 : 0);
+	setUniform(waterfallUniform_, static_cast<float>(waterfallPosition_) / static_cast<float>(waterfallRows));
 	setUniform(uUpperHalfPercentage_, upperHalfPercentage_);
 	setUniform(audioSampleData_, 1);
 	setUniform(waterfallTexture_, 2);
 
-	// This will crash when the driver doesn't have this function. Well, we won't render anything then anyway, so what?
 	context_.extensions.glActiveTexture(GL_TEXTURE0);
 	textureLUT_->bind();
-	JUCE_CHECK_OPENGL_ERROR
-
 	context_.extensions.glActiveTexture(GL_TEXTURE1);
 	spectrumData_->bind();
-	JUCE_CHECK_OPENGL_ERROR
-
 	context_.extensions.glActiveTexture(GL_TEXTURE2);
 	spectrumHistory_->bind();
-	JUCE_CHECK_OPENGL_ERROR
 
-	if (!spectrogram_.expired() && fftData_.size() >= spectrogram_.lock()->fftSize() / 2) {
-		spectrumData_->load(fftData_.data() + waterfallPosition * spectrogram_.lock()->fftSize() / 2, spectrogram_.lock()->fftSize() / 2, 1);
-		spectrumHistory_->load(fftData_.data(), spectrogram_.lock()->fftSize() / 2, 512);
+	if (const auto analyzer = spectrogram_.lock()) {
+		if (spectrumUpdated) {
+			const auto rowOffset = static_cast<size_t>(waterfallPosition_ * analyzer->spectrumSize());
+			const auto* rowData = fftData_.data() + rowOffset;
+			spectrumData_->load(rowData, analyzer->spectrumSize(), 1);
+			spectrumHistory_->load(rowData, analyzer->spectrumSize(), 1, waterfallPosition_);
+		}
 	}
 
-	// Read a block that is big enough so we can fill our viewport with a triggered wave of the latest acquired audio
-	// Define Vertices for a Square (the view plane)
-	GLfloat vertices[] = {
-		1.0f,   1.0f,  0.0f,  // Top Right
-		1.0f,  -1.0f,  0.0f,  // Bottom Right
-		-1.0f, -1.0f,  0.0f,  // Bottom Left
-		-1.0f,  1.0f,  0.0f   // Top Left
+	const GLfloat vertices[] = {
+		1.0f, 1.0f, 0.0f,
+		1.0f, -1.0f, 0.0f,
+		-1.0f, -1.0f, 0.0f,
+		-1.0f, 1.0f, 0.0f
 	};
-	// Define Which Vertex Indexes Make the Square
-	GLuint indices[] = {  // Note that we start from 0!
-		0, 1, 3,   // First Triangle
-		1, 2, 3    // Second Triangle
-	};
+	const GLuint indices[] = { 0, 1, 3, 1, 2, 3 };
 
-	// VBO (Vertex Buffer Object) - Bind and Write to Buffer
 	context_.extensions.glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer_);
 	context_.extensions.glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STREAM_DRAW);
-
-	// EBO (Element Buffer Object) - Bind and Write to Buffer
 	context_.extensions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elements_);
 	context_.extensions.glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STREAM_DRAW);
-
-	// Setup Vertex Attributes
-	context_.extensions.glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (GLvoid*)0);
-	context_.extensions.glEnableVertexAttribArray(0);
-
-	// Draw Vertices
-	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0); // For EBO's (Element Buffer Objects) (Indices)
-
-	// Reset the element buffers so child Components draw correctly
+	context_.extensions.glVertexAttribPointer(
+		position_->attributeID, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), nullptr);
+	context_.extensions.glEnableVertexAttribArray(position_->attributeID);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+	context_.extensions.glDisableVertexAttribArray(position_->attributeID);
 	context_.extensions.glBindBuffer(GL_ARRAY_BUFFER, 0);
 	context_.extensions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
-	if (textureLUT_) textureLUT_->unbind();
-	if (spectrumData_) spectrumData_->unbind();
-	if (spectrumHistory_) spectrumHistory_->unbind();
-	JUCE_CHECK_OPENGL_ERROR
+	textureLUT_->unbind();
+	spectrumData_->unbind();
+	spectrumHistory_->unbind();
 }
 
-void SpectogramWidget::resized()
+void SpectrogramWidget::resized()
 {
 	statusLabel_.setBounds(getLocalBounds().reduced(4).removeFromTop(75));
+	context_.triggerRepaint();
 }
 
-void SpectogramWidget::refreshData()
+void SpectrogramWidget::refreshData()
 {
-	// Don't call this too early when no OpenGL context has been initialized
-	if (spectrumData_ && spectrumHistory_ && !spectrogram_.expired()) {
-		waterfallPosition = (waterfallPosition + 1) % 512;
-		spectrogram_.lock()->getData(fftData_.data() + spectrogram_.lock()->fftSize() / 2 * waterfallPosition);
+	refreshRequested_.store(true, std::memory_order_release);
+	context_.triggerRepaint();
+}
+
+void SpectrogramWidget::setXAxis(bool logAxis)
+{
+	xLogAxis_.store(logAxis, std::memory_order_relaxed);
+	context_.triggerRepaint();
+}
+
+void SpectrogramWidget::setHorizontalMode(bool horizontal)
+{
+	horizontal_.store(horizontal, std::memory_order_relaxed);
+	context_.triggerRepaint();
+}
+
+void SpectrogramWidget::publishStatus(String statusText)
+{
+	Component::SafePointer<SpectrogramWidget> safeThis(this);
+	MessageManager::callAsync([safeThis, statusText = std::move(statusText)]() mutable {
+		if (safeThis != nullptr)
+			safeThis->statusLabel_.setText(std::move(statusText), dontSendNotification);
+	});
+}
+
+void SpectrogramWidget::releaseOpenGLResources()
+{
+	openGLReady_ = false;
+	if (vertexBuffer_ != 0) {
+		context_.extensions.glDeleteBuffers(1, &vertexBuffer_);
+		vertexBuffer_ = 0;
 	}
+	if (elements_ != 0) {
+		context_.extensions.glDeleteBuffers(1, &elements_);
+		elements_ = 0;
+	}
+
+	if (textureLUT_ != nullptr)
+		textureLUT_->release();
+	if (spectrumData_ != nullptr)
+		spectrumData_->release();
+	if (spectrumHistory_ != nullptr)
+		spectrumHistory_->release();
+	textureLUT_.reset();
+	spectrumData_.reset();
+	spectrumHistory_.reset();
+
+	position_.reset();
+	resolution_.reset();
+	audioSampleData_.reset();
+	lutTexture_.reset();
+	waterfallTexture_.reset();
+	waterfallUniform_.reset();
+	logXAxis_.reset();
+	uUpperHalfPercentage_.reset();
+	uHorizontal_.reset();
+	shader_.reset();
 }
 
-void SpectogramWidget::setXAxis(bool logAxis)
+bool SpectrogramWidget::pullLatestSpectrum()
 {
-	xLogAxis_ = logAxis ? 1 : 0;
-}
+	const auto analyzer = spectrogram_.lock();
+	if (analyzer == nullptr || analyzer->sequence() == lastSequence_)
+		return false;
 
-void SpectogramWidget::setHorizontalMode(bool horizontal)
-{
-	horizontal_ = horizontal ? 1 : 0;
-}
+	const auto nextRow = (waterfallPosition_ + 1) % waterfallRows;
+	std::uint64_t copiedSequence = 0;
+	if (!analyzer->copyLatestSpectrum(
+		fftData_.data() + static_cast<size_t>(nextRow * analyzer->spectrumSize()),
+		analyzer->spectrumSize(), &copiedSequence)) {
+		return false;
+	}
 
+	waterfallPosition_ = nextRow;
+	lastSequence_ = copiedSequence;
+	return true;
+}

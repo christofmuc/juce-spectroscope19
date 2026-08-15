@@ -6,54 +6,70 @@
 
 #pragma once
 
-#include <juce_core/juce_core.h>
-
-#include "Spectrogram.h"
+#include <juce_gui_basics/juce_gui_basics.h>
 
 #include "OpenGLFloatTexture.h"
 #include "ShaderBasedComponent.h"
+#include "Spectrogram.h"
 
-class SpectogramWidget : public ShaderBasedComponent
-{
+#include <atomic>
+#include <cstdint>
+
+class SpectrogramWidget final : public ShaderBasedComponent {
 public:
-	SpectogramWidget(std::weak_ptr<Spectrogram> spectrogram);
+	explicit SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram);
 
-	// OpenGLRenderer interface
 	void newOpenGLContextCreated() override;
 	void openGLContextClosing() override;
 	void renderOpenGL() override;
-
-	// Override for layout
 	void resized() override;
 
-	// Call this to read the next spectrogram
+	// Safe to call from a non-OpenGL thread. The actual snapshot transfer and
+	// history update happen on the OpenGL render thread.
 	void refreshData();
 
-	// Settings
 	void setXAxis(bool logAxis);
 	void setHorizontalMode(bool horizontal);
 
 private:
 	std::shared_ptr<juce::OpenGLTexture> createColorLookupTexture();
-	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int w, int h);
+	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int width, int height, float initialValue);
+	void publishStatus(juce::String statusText);
+	void releaseOpenGLResources();
+	bool pullLatestSpectrum();
 
 	std::weak_ptr<Spectrogram> spectrogram_;
 
-	GLuint vertexBuffer_, elements_;
+	GLuint vertexBuffer_ { 0 };
+	GLuint elements_ { 0 };
 	std::shared_ptr<juce::OpenGLTexture> textureLUT_;
 	std::shared_ptr<OpenGLFloatTexture> spectrumData_;
 	std::shared_ptr<OpenGLFloatTexture> spectrumHistory_;
 
 	std::unique_ptr<juce::OpenGLShaderProgram> shader_;
-	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> resolution_, audioSampleData_, lutTexture_, waterfallTexture_, waterfallUniform_, logXAxis_, uUpperHalfPercentage_, uHorizontal_;
+	std::unique_ptr<juce::OpenGLShaderProgram::Attribute> position_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> resolution_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> audioSampleData_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> lutTexture_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> waterfallTexture_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> waterfallUniform_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> logXAxis_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uUpperHalfPercentage_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uHorizontal_;
 
-	std::vector<GLfloat> fftData_; // Current line from the spectrogram
-	int waterfallPosition = 0;
-	int xLogAxis_ = 1;
-	int horizontal_ = 0;
-	float upperHalfPercentage_ = 0.618f;
+	std::vector<GLfloat> fftData_;
+	int waterfallPosition_ { 0 };
+	std::uint64_t lastSequence_ { 0 };
+	std::atomic<bool> refreshRequested_ { true };
+	std::atomic<bool> xLogAxis_ { true };
+	std::atomic<bool> horizontal_ { false };
+	float upperHalfPercentage_ { 0.618f };
+	bool openGLReady_ { false };
 
 	juce::Label statusLabel_;
 
-	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpectogramWidget)
+	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpectrogramWidget)
 };
+
+// Temporary source compatibility for the original misspelled public name.
+using SpectogramWidget = SpectrogramWidget;

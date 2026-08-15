@@ -4,42 +4,47 @@
 #  Dual licensed: Distributed under Affero GPL license by default, an MIT license is available for purchase
 #
 
-project(juce-spectroscope19)
+cmake_minimum_required(VERSION 3.14)
 
-IF(WIN32)
-	FetchContent_Declare(
-		glslang
-		URL https://github.com/KhronosGroup/glslang/releases/download/master-tot/glslang-master-windows-x64-Release.zip
-	)
-	FetchContent_MakeAvailable(glslang)
-ELSEIF(UNIX)
-	FetchContent_Declare(
-		glslang
-		URL https://github.com/KhronosGroup/glslang/releases/download/master-tot/glslang-master-linux-Release.zip
-	)
-	FetchContent_MakeAvailable(glslang)
-ENDIF()
+project(juce-spectroscope19 LANGUAGES CXX)
 
-# Load the macro to process binary resources
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
+option(JUCE_SPECTROSCOPE_VALIDATE_SHADERS "Validate shaders with an installed glslangValidator" OFF)
+option(JUCE_SPECTROSCOPE_BUILD_TESTS "Build the headless analyzer tests" OFF)
 
+if(NOT TARGET juce-static)
+	message(FATAL_ERROR "juce-spectroscope19 expects the parent project to provide the juce-static target")
+endif()
 
-set(SHADER_FILES 
-	shaders/oscilloscope.frag.glsl
-	shaders/oscilloscope.vert.glsl
+set(SHADER_FILES
+	"${CMAKE_CURRENT_LIST_DIR}/shaders/oscilloscope.frag.glsl"
+	"${CMAKE_CURRENT_LIST_DIR}/shaders/oscilloscope.vert.glsl"
 )
 
-add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/BinaryResources.h
-	COMMAND ${CMAKE_COMMAND} -P createResources.cmake	
-	DEPENDS ${SHADER_FILES}
-	COMMENT "Compiling binary resources"
-	WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+set(GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(GENERATED_RESOURCES "${GENERATED_DIRECTORY}/BinaryResources.h")
+file(MAKE_DIRECTORY "${GENERATED_DIRECTORY}")
+
+add_custom_command(
+	OUTPUT "${GENERATED_RESOURCES}"
+	COMMAND "${CMAKE_COMMAND}"
+		"-DOUTPUT_FILE=${GENERATED_RESOURCES}"
+		"-DINPUT_FILES=${SHADER_FILES}"
+		-P "${CMAKE_CURRENT_LIST_DIR}/createResources.cmake"
+	DEPENDS ${SHADER_FILES} "${CMAKE_CURRENT_LIST_DIR}/createResources.cmake"
+	COMMENT "Embedding juce-spectroscope19 shaders"
+	VERBATIM
 )
 
-# Define the sources for the static library
-set(Sources
-	Fifo.h
-	BinaryResources.h
+add_library(juce-spectroscope-analysis STATIC
+	Spectrogram.cpp
+	Spectrogram.h
+)
+target_include_directories(juce-spectroscope-analysis PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
+target_link_libraries(juce-spectroscope-analysis PUBLIC juce-static)
+target_compile_features(juce-spectroscope-analysis PUBLIC cxx_std_17)
+
+add_library(juce-spectroscope-ui STATIC
+	"${GENERATED_RESOURCES}"
 	ManagedOpenGLComponent.h
 	OpenGLFloatTexture.cpp
 	OpenGLFloatTexture.h
@@ -47,38 +52,45 @@ set(Sources
 	OpenGLHelpers.h
 	ShaderBasedComponent.cpp
 	ShaderBasedComponent.h
-	Spectrogram.cpp
-	Spectrogram.h
 	SpectrogramWidget.cpp
 	SpectrogramWidget.h
 	${SHADER_FILES}
 )
-
-set_source_files_properties(
-	BinaryResources.h
-	PROPERTIES GENERATED TRUE
+target_include_directories(juce-spectroscope-ui
+	PUBLIC "${CMAKE_CURRENT_LIST_DIR}"
+	PRIVATE "${GENERATED_DIRECTORY}"
 )
+target_link_libraries(juce-spectroscope-ui PUBLIC juce-spectroscope-analysis juce-static)
+target_compile_features(juce-spectroscope-ui PUBLIC cxx_std_17)
 
-# Setup library
-add_library(juce-spectroscope19 ${Sources})
-target_include_directories(juce-spectroscope19 INTERFACE ${CMAKE_CURRENT_LIST_DIR} PUBLIC ${GLEW_DIRECTORY} "${asiosdk_SOURCE_DIR}/common")
-target_include_directories(juce-spectroscope19 PRIVATE ${JUCE_INCLUDES})
-target_link_libraries(juce-spectroscope19 PRIVATE juce-static)
+# Compatibility target for existing parent projects.
+add_library(juce-spectroscope19 INTERFACE)
+target_link_libraries(juce-spectroscope19 INTERFACE juce-spectroscope-analysis juce-spectroscope-ui)
 
-# Run the shader verification step!
-foreach(SHADER ${SHADER_FILES})
-	add_custom_command(TARGET juce-spectroscope19 PRE_BUILD
-		COMMAND "${glslang_SOURCE_DIR}/bin/glslangValidator" ${SHADER}
-		COMMENT "Running glslang shader verification on ${SHADER}"
-		WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
+if(JUCE_SPECTROSCOPE_VALIDATE_SHADERS)
+	find_program(GLSLANG_VALIDATOR NAMES glslangValidator REQUIRED)
+	add_custom_target(juce-spectroscope-validate-shaders)
+	foreach(SHADER IN LISTS SHADER_FILES)
+		add_custom_command(TARGET juce-spectroscope-validate-shaders
+			COMMAND "${GLSLANG_VALIDATOR}" "${SHADER}"
+			COMMENT "Validating ${SHADER}"
+			VERBATIM
+		)
+	endforeach()
+	add_dependencies(juce-spectroscope-ui juce-spectroscope-validate-shaders)
+endif()
+
+if(JUCE_SPECTROSCOPE_BUILD_TESTS)
+	add_executable(juce-spectroscope-analysis-tests tests/SpectrogramTests.cpp)
+	target_link_libraries(juce-spectroscope-analysis-tests PRIVATE juce-spectroscope-analysis)
+	target_compile_features(juce-spectroscope-analysis-tests PRIVATE cxx_std_17)
+	add_test(NAME juce-spectroscope-analysis-tests COMMAND juce-spectroscope-analysis-tests)
+endif()
+
+foreach(TARGET_NAME IN ITEMS juce-spectroscope-analysis juce-spectroscope-ui)
+	if(MSVC)
+		target_compile_options(${TARGET_NAME} PRIVATE /W4 /WX)
+	elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+		target_compile_options(${TARGET_NAME} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+	endif()
 endforeach()
-
-# Pedantic about warnings
-IF(MSVC)
-    # warning level 4 and all warnings as errors
-    target_compile_options(juce-spectroscope19 PRIVATE /W4 /WX)
-ELSEIF(UNIX)
-    # lots of warnings and all warnings as errors
-    #target_compile_options(juce-spectroscope19 PRIVATE -Wall -Wextra -pedantic -Werror)
-    target_compile_options(juce-spectroscope19 PRIVATE -pthread -I/usr/include/webkitgtk-4.0 -I/usr/include/gtk-3.0 -I/usr/include/at-spi2-atk/2.0 -I/usr/include/at-spi-2.0 -I/usr/include/dbus-1.0 -I/usr/lib/x86_64-linux-gnu/dbus-1.0/include -I/usr/include/gtk-3.0 -I/usr/include/gio-unix-2.0/ -I/usr/include/cairo -I/usr/include/pango-1.0 -I/usr/include/harfbuzz -I/usr/include/pango-1.0 -I/usr/include/atk-1.0 -I/usr/include/cairo -I/usr/include/pixman-1 -I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include/gdk-pixbuf-2.0 -I/usr/include/libpng16 -I/usr/include/libsoup-2.4 -I/usr/include/libxml2 -I/usr/include/webkitgtk-4.0 -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include  -DDEBUG -DJUCE_DEBUG)
-ENDIF()
