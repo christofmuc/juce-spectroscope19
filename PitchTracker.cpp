@@ -7,19 +7,21 @@
 #include "PitchTracker.h"
 
 #include <algorithm>
-#include <cstddef>
 #include <cmath>
+#include <cstddef>
 
 namespace {
 constexpr float minimumConcertAHz = 400.0f;
 constexpr float maximumConcertAHz = 480.0f;
 constexpr float resonatorCycles = 12.0f;
+constexpr float levelAttack = 0.35f;
+constexpr float levelRelease = 0.015f;
 constexpr float noteAttack = 0.45f;
 constexpr float noteRelease = 0.93f;
 constexpr float notePositionFollow = 0.35f;
 constexpr float noteMatchDistance = 2.0f;
 constexpr float noteRemovalStrength = 0.01f;
-constexpr float fieldSigma = 0.72f;
+constexpr float fieldSigma = 0.82f;
 
 float clamp01(float value)
 {
@@ -32,25 +34,6 @@ float smoothStep(float lower, float upper, float value)
 	return normalised * normalised * (3.0f - 2.0f * normalised);
 }
 
-float wrappedPosition(float position)
-{
-	position = std::fmod(position, static_cast<float>(PitchTracker::binsPerOctave));
-	return position < 0.0f ? position + static_cast<float>(PitchTracker::binsPerOctave) : position;
-}
-
-float circularDelta(float from, float to)
-{
-	const auto period = static_cast<float>(PitchTracker::binsPerOctave);
-	auto delta = wrappedPosition(to - from);
-	if (delta > period * 0.5f)
-		delta -= period;
-	return delta;
-}
-
-float circularDistance(float first, float second)
-{
-	return std::abs(circularDelta(first, second));
-}
 }
 
 void PitchTracker::prepare(double newSampleRate, float newConcertAHz)
@@ -65,9 +48,13 @@ void PitchTracker::reset()
 {
 	previousInput_ = 0.0f;
 	dcBlockerOutput_ = 0.0f;
-	std::fill(foldedBins_.begin(), foldedBins_.end(), 0.0f);
+	currentInputPeak_ = 0.0f;
+	adaptiveSignalLevel_ = 0.0f;
+	std::fill(analysisBins_.begin(), analysisBins_.end(), 0.0f);
 	std::fill(smoothedBins_.begin(), smoothedBins_.end(), 0.0f);
-	peakCount_ = 0;
+	std::fill(sortedBins_.begin(), sortedBins_.end(), 0.0f);
+	candidatePeakCount_ = 0;
+	fundamentalPeakCount_ = 0;
 
 	for (auto& resonator : resonators_) {
 		resonator.cosinePhase = 1.0f;
@@ -95,8 +82,10 @@ void PitchTracker::process(const float* samples, int numSamples)
 	if (samples == nullptr || numSamples <= 0 || sampleRate_ <= 0.0)
 		return;
 
+	currentInputPeak_ = 0.0f;
 	for (int sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex) {
 		const auto input = samples[sampleIndex];
+		currentInputPeak_ = std::max(currentInputPeak_, std::abs(input));
 		const auto filteredInput = input - previousInput_ + dcBlockerCoefficient_ * dcBlockerOutput_;
 		previousInput_ = input;
 		dcBlockerOutput_ = filteredInput;
@@ -116,8 +105,6 @@ void PitchTracker::process(const float* samples, int numSamples)
 		}
 	}
 
-	// Recurrence round-off accumulates very slowly. Renormalising once per input
-	// block keeps the oscillators on the unit circle without per-sample square roots.
 	for (auto& resonator : resonators_) {
 		const auto magnitude = std::hypot(resonator.cosinePhase, resonator.sinePhase);
 		if (magnitude > 0.0f) {
@@ -137,29 +124,22 @@ void PitchTracker::calculate(float* destination, int destinationSize)
 		return;
 	}
 
-	std::fill(foldedBins_.begin(), foldedBins_.end(), 0.0f);
-	constexpr std::array<float, octaveCount> octaveWeights { 0.5f, 1.0f, 1.0f, 1.0f, 1.0f, 0.5f };
-	constexpr float octaveWeightSum = 5.0f;
-	for (int octave = 0; octave < octaveCount; ++octave) {
-		for (int pitchBin = 0; pitchBin < binsPerOctave; ++pitchBin) {
-			const auto& resonator = resonators_[static_cast<std::size_t>(
-				octave * binsPerOctave + pitchBin)];
-			const auto magnitude = 2.0f * (1.0f - resonator.decay)
-				* std::hypot(resonator.inPhase, resonator.quadrature);
-			foldedBins_[static_cast<std::size_t>(pitchBin)] +=
-				octaveWeights[static_cast<std::size_t>(octave)] * magnitude / octaveWeightSum;
-		}
+	for (int bin = 0; bin < analysisBinCount; ++bin) {
+		const auto& resonator = resonators_[static_cast<std::size_t>(bin)];
+		analysisBins_[static_cast<std::size_t>(bin)] = 2.0f * (1.0f - resonator.decay)
+			* std::hypot(resonator.inPhase, resonator.quadrature);
 	}
 
-	for (int pitchBin = 0; pitchBin < binsPerOctave; ++pitchBin) {
-		const auto left = (pitchBin + binsPerOctave - 1) % binsPerOctave;
-		const auto right = (pitchBin + 1) % binsPerOctave;
-		smoothedBins_[static_cast<std::size_t>(pitchBin)] =
-			0.25f * foldedBins_[static_cast<std::size_t>(left)]
-			+ 0.5f * foldedBins_[static_cast<std::size_t>(pitchBin)]
-			+ 0.25f * foldedBins_[static_cast<std::size_t>(right)];
+	for (int bin = 0; bin < analysisBinCount; ++bin) {
+		const auto left = std::max(0, bin - 1);
+		const auto right = std::min(analysisBinCount - 1, bin + 1);
+		smoothedBins_[static_cast<std::size_t>(bin)] =
+			0.25f * analysisBins_[static_cast<std::size_t>(left)]
+			+ 0.5f * analysisBins_[static_cast<std::size_t>(bin)]
+			+ 0.25f * analysisBins_[static_cast<std::size_t>(right)];
 	}
 
+	findFundamentalPeaks();
 	updateTrackedNotes();
 	renderTrackedField(destination);
 }
@@ -196,60 +176,92 @@ void PitchTracker::rebuildResonators()
 			-frequency / (static_cast<double>(resonatorCycles) * sampleRate_)));
 	}
 
-	// A gentle DC blocker prevents offsets and subsonic motion from lighting the
-	// lowest pitch bins while leaving the analysed musical range untouched.
 	dcBlockerCoefficient_ = static_cast<float>(std::exp(-twoPi * 20.0 / sampleRate_));
+}
+
+void PitchTracker::findFundamentalPeaks()
+{
+	candidatePeakCount_ = 0;
+	fundamentalPeakCount_ = 0;
+	const auto maximumBin = *std::max_element(smoothedBins_.begin(), smoothedBins_.end());
+	const auto levelCoefficient = maximumBin > adaptiveSignalLevel_ ? levelAttack : levelRelease;
+	adaptiveSignalLevel_ += levelCoefficient * (maximumBin - adaptiveSignalLevel_);
+	if (currentInputPeak_ <= 0.00001f || maximumBin <= 0.000001f
+		|| adaptiveSignalLevel_ <= 0.000001f
+		|| maximumBin < adaptiveSignalLevel_ * 0.02f) {
+		return;
+	}
+
+	std::copy(smoothedBins_.begin(), smoothedBins_.end(), sortedBins_.begin());
+	std::sort(sortedBins_.begin(), sortedBins_.end());
+	const auto noiseFloor = sortedBins_[static_cast<std::size_t>(analysisBinCount / 2)];
+
+	for (int bin = 1; bin < analysisBinCount - 1; ++bin) {
+		const auto left = smoothedBins_[static_cast<std::size_t>(bin - 1)];
+		const auto centre = smoothedBins_[static_cast<std::size_t>(bin)];
+		const auto right = smoothedBins_[static_cast<std::size_t>(bin + 1)];
+		if (centre <= left || centre < right)
+			continue;
+
+		const auto localProminence = (centre - std::max(left, right))
+			/ std::max(centre, 0.000001f);
+		const auto noiseContrast = (centre - noiseFloor)
+			/ std::max(centre, 0.000001f);
+		const auto relativeLevel = centre / std::max(adaptiveSignalLevel_, maximumBin * 0.25f);
+		const auto coherentLevel = centre / std::max(currentInputPeak_, 0.000001f);
+		const auto strength = std::sqrt(clamp01(relativeLevel))
+			* smoothStep(0.03f, 0.25f, localProminence)
+			* smoothStep(0.35f, 0.90f, noiseContrast)
+			* smoothStep(0.08f, 0.35f, coherentLevel);
+		if (strength < 0.025f)
+			continue;
+
+		const auto denominator = left - 2.0f * centre + right;
+		auto offset = 0.0f;
+		if (std::abs(denominator) > 0.000001f)
+			offset = std::clamp(0.5f * (left - right) / denominator, -0.5f, 0.5f);
+		candidatePeaks_[static_cast<std::size_t>(candidatePeakCount_++)] = {
+			static_cast<float>(bin) + offset, strength
+		};
+	}
+
+	// Low fundamentals are considered before their overtones. A candidate near
+	// an integer multiple of an already accepted lower peak is rendered by the
+	// FFT but omitted from the colour mask.
+	for (int candidateIndex = 0; candidateIndex < candidatePeakCount_; ++candidateIndex) {
+		const auto& candidate = candidatePeaks_[static_cast<std::size_t>(candidateIndex)];
+		auto explainedByHarmonic = false;
+		for (int fundamentalIndex = 0; fundamentalIndex < fundamentalPeakCount_; ++fundamentalIndex) {
+			const auto& lower = fundamentalPeaks_[static_cast<std::size_t>(fundamentalIndex)];
+			const auto ratio = std::pow(2.0f,
+				(candidate.position - lower.position) / static_cast<float>(binsPerOctave));
+			const auto harmonic = std::round(ratio);
+			if (harmonic < 2.0f || harmonic > 8.0f)
+				continue;
+			const auto harmonicDistance = std::abs(static_cast<float>(binsPerOctave)
+				* std::log2(ratio / harmonic));
+			if (harmonicDistance < 0.65f && lower.strength > 0.06f) {
+				explainedByHarmonic = true;
+				break;
+			}
+		}
+		if (!explainedByHarmonic && fundamentalPeakCount_ < maximumTrackedNotes)
+			fundamentalPeaks_[static_cast<std::size_t>(fundamentalPeakCount_++)] = candidate;
+	}
 }
 
 void PitchTracker::updateTrackedNotes()
 {
-	peakCount_ = 0;
-	const auto maximumBin = *std::max_element(smoothedBins_.begin(), smoothedBins_.end());
-	if (maximumBin > 0.0f) {
-		for (int pitchBin = 0; pitchBin < binsPerOctave; ++pitchBin) {
-			const auto leftIndex = (pitchBin + binsPerOctave - 1) % binsPerOctave;
-			const auto rightIndex = (pitchBin + 1) % binsPerOctave;
-			const auto left = smoothedBins_[static_cast<std::size_t>(leftIndex)];
-			const auto centre = smoothedBins_[static_cast<std::size_t>(pitchBin)];
-			const auto right = smoothedBins_[static_cast<std::size_t>(rightIndex)];
-			if (centre <= left || centre < right)
-				continue;
-
-			const auto prominenceRatio = (centre - std::max(left, right))
-				/ std::max(centre, 0.000001f);
-			const auto tonalConfidence = smoothStep(0.03f, 0.25f, prominenceRatio);
-			const auto absoluteConfidence = smoothStep(0.0005f, 0.02f, centre);
-			const auto strength = clamp01(centre / maximumBin)
-				* tonalConfidence * absoluteConfidence;
-			if (strength < 0.02f)
-				continue;
-
-			const auto denominator = left - 2.0f * centre + right;
-			auto offset = 0.0f;
-			if (std::abs(denominator) > 0.000001f)
-				offset = std::clamp(0.5f * (left - right) / denominator, -0.5f, 0.5f);
-
-			peaks_[static_cast<std::size_t>(peakCount_++)] = {
-				wrappedPosition(static_cast<float>(pitchBin) + offset), strength
-			};
-		}
-	}
-
-	std::sort(peaks_.begin(), peaks_.begin() + static_cast<std::ptrdiff_t>(peakCount_),
-		[](const Peak& first, const Peak& second) {
-		return first.strength > second.strength;
-	});
-
 	std::array<bool, maximumTrackedNotes> matchedTracks {};
-	for (int peakIndex = 0; peakIndex < peakCount_; ++peakIndex) {
-		const auto& peak = peaks_[static_cast<std::size_t>(peakIndex)];
+	for (int peakIndex = 0; peakIndex < fundamentalPeakCount_; ++peakIndex) {
+		const auto& peak = fundamentalPeaks_[static_cast<std::size_t>(peakIndex)];
 		int bestTrack = -1;
 		auto bestDistance = noteMatchDistance;
 		for (int trackIndex = 0; trackIndex < maximumTrackedNotes; ++trackIndex) {
 			const auto& track = trackedNotes_[static_cast<std::size_t>(trackIndex)];
 			if (!track.active || matchedTracks[static_cast<std::size_t>(trackIndex)])
 				continue;
-			const auto distance = circularDistance(track.position, peak.position);
+			const auto distance = std::abs(track.position - peak.position);
 			if (distance < bestDistance) {
 				bestDistance = distance;
 				bestTrack = trackIndex;
@@ -273,8 +285,7 @@ void PitchTracker::updateTrackedNotes()
 			track.strength = peak.strength * noteAttack;
 			track.active = true;
 		} else {
-			track.position = wrappedPosition(track.position
-				+ notePositionFollow * circularDelta(track.position, peak.position));
+			track.position += notePositionFollow * (peak.position - track.position);
 			track.strength += noteAttack * (peak.strength - track.strength);
 		}
 		matchedTracks[static_cast<std::size_t>(bestTrack)] = true;
@@ -298,8 +309,8 @@ void PitchTracker::renderTrackedField(float* destination) const
 			continue;
 		for (int outputBin = 0; outputBin < outputBinCount; ++outputBin) {
 			const auto position = (static_cast<float>(outputBin) + 0.5f)
-				* static_cast<float>(binsPerOctave) / static_cast<float>(outputBinCount);
-			const auto distance = circularDistance(position, note.position);
+				* static_cast<float>(analysisBinCount) / static_cast<float>(outputBinCount);
+			const auto distance = std::abs(position - note.position);
 			const auto gaussian = std::exp(-0.5f * distance * distance / (fieldSigma * fieldSigma));
 			auto& output = destination[outputBin];
 			output = std::max(output, clamp01(note.strength * gaussian));

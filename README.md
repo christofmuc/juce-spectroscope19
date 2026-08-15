@@ -45,7 +45,7 @@ target_link_libraries(MyApplication PRIVATE juce-spectroscope19)
 
 Audio callbacks must not call `Spectrogram::process()` directly. Copy audio into a bounded preallocated queue, perform analysis on a worker thread, and let the UI poll completed spectra at a bounded rate. The standalone demo is a working reference implementation.
 
-The analyzer publishes two synchronized views of every analysis instant: a full-resolution FFT row for transients, noise, harmonics, and timbre, plus an octave-folded tracked pitch-class field. Pitch-colour mode renders the FFT as a greyscale substrate and adds circle-of-fifths colour only where stable tracked notes agree with spectral energy. The logarithmic tracker is an independent implementation inspired by the general ColorChord approach; ColorChord is not a source or runtime dependency.
+The analyzer publishes two synchronized views of every analysis instant: a full-resolution FFT row for transients, noise, harmonics, and timbre, plus an absolute log-frequency field of tracked fundamentals. Pitch-colour mode renders the FFT as a greyscale substrate and adds circle-of-fifths colour only at stable fundamentals; overtones remain visible in grey. Detection adapts to the current signal and suppresses peaks explained as harmonics of a lower note. The logarithmic tracker is an independent implementation inspired by the general ColorChord approach; ColorChord is not a source or runtime dependency.
 
 See [Integrating JUCE Spectroscope](docs/integration.md) for target selection, ownership, lifecycle, and threading guidance.
 

@@ -16,7 +16,7 @@
 #include <cstdint>
 #include <vector>
 
-// Stateful FFT and pitch analyzer. process() is intended to run on an analysis
+// Stateful FFT and fundamental-pitch analyzer. process() is intended to run on an analysis
 // worker, never on a real-time audio callback. The UI may copy completed
 // synchronized spectrum and tracked-pitch frames concurrently.
 class Spectrogram {
@@ -52,7 +52,7 @@ public:
 	int copySpectrumFramesAfter(std::uint64_t afterSequence, float* destination,
 		int destinationSize, std::uint64_t* copiedThroughSequence = nullptr) const;
 
-	// Copies synchronized FFT and tracked pitch-class rows. Both destinations
+	// Copies synchronized FFT and tracked fundamental-pitch rows. Both destinations
 	// receive the same oldest-to-newest sequence range.
 	int copyAnalysisFramesAfter(std::uint64_t afterSequence,
 		float* spectrumDestination, int spectrumDestinationSize,

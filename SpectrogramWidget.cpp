@@ -117,8 +117,8 @@ void SpectrogramWidget::newOpenGLContextCreated()
 	textureLUT_ = createColorLookupTexture();
 	spectrumData_ = createDataTexture(analyzer->spectrumSize(), 1, analyzer->floorDb());
 	spectrumHistory_ = createDataTexture(analyzer->spectrumSize(), waterfallRows, analyzer->floorDb());
-	pitchClassData_ = createDataTexture(analyzer->pitchClassSize(), 1, 0.0f, true);
-	pitchClassHistory_ = createDataTexture(analyzer->pitchClassSize(), waterfallRows, 0.0f, true);
+	pitchClassData_ = createDataTexture(analyzer->pitchClassSize(), 1, 0.0f);
+	pitchClassHistory_ = createDataTexture(analyzer->pitchClassSize(), waterfallRows, 0.0f);
 
 	context_.extensions.glGenBuffers(1, &vertexBuffer_);
 	context_.extensions.glGenBuffers(1, &elements_);
@@ -156,16 +156,11 @@ std::shared_ptr<OpenGLTexture> SpectrogramWidget::createColorLookupTexture()
 }
 
 std::shared_ptr<OpenGLFloatTexture> SpectrogramWidget::createDataTexture(
-	int width, int height, float initialValue, bool repeatHorizontally)
+	int width, int height, float initialValue)
 {
 	auto texture = std::make_shared<OpenGLFloatTexture>();
 	std::vector<GLfloat> emptyPixels(static_cast<size_t>(width * height), initialValue);
 	texture->create(width, height, emptyPixels.data());
-	if (repeatHorizontally) {
-		texture->bind();
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		texture->unbind();
-	}
 	return texture;
 }
 

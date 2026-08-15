@@ -74,9 +74,9 @@ ctest --test-dir build --output-on-failure
 - **Pitch colours** keeps the full FFT in greyscale and overlays stable tracked notes using their position on the circle of fifths. Colour saturation still falls continuously from a note centre to neutral grey at the midpoint between neighbouring notes.
 - **A4 reference** sets the tuning reference from 415 Hz to 466 Hz. For example, set it to 444 Hz when analysing an ensemble tuned to A4 = 444 Hz.
 
-Pitch analysis runs beside the FFT on the analysis worker. A bank of 144 logarithmic resonators covers six octaves at 24 bins per octave. Matching bins are folded across octaves, local maxima are interpolated between bins, and note positions and strengths are associated over time. Every FFT history row has a synchronized 256-sample circular pitch-confidence row.
+Pitch analysis runs beside the FFT on the analysis worker. A bank of 144 logarithmic resonators covers six octaves at 24 bins per octave. Local maxima are measured against adaptive signal and noise levels, interpolated between bins, and associated over time. Peaks explained as integer harmonics of a lower tracked fundamental are removed from the colour mask. Every FFT history row has a synchronized 256-sample absolute log-frequency confidence row.
 
-The OpenGL shader uses that second data source as a colour mask: broadband energy, attacks, noise, and non-pitched detail remain greyscale, while FFT energy matching a stable tracked note receives circle-of-fifths colour. Local spectral salience and the continuous in-tune-to-grey gradient remain in the mask, so pitch colour does not erase transient or intonation information.
+The OpenGL shader uses that second data source as a colour mask: broadband energy, attacks, noise, overtones, and non-pitched detail remain greyscale, while a stable inferred fundamental receives circle-of-fifths colour. Local spectral salience and the continuous in-tune-to-grey gradient remain in the mask, so pitch colour does not erase transient or intonation information.
 
 The status area reports microphone permission or audio-device initialization errors. If no input device is available, the window and renderer remain usable rather than terminating the application.
 

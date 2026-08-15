@@ -54,15 +54,19 @@ float spectralSalience(sampler2D sourceTexture, vec2 texturePosition) {
 	return smoothstep(0.0f, 6.0f, prominenceDb);
 }
 
-float pitchClassPosition(float frequencyPosition) {
+float trackedPitchPosition(float frequencyPosition) {
 	float frequency = frequencyPosition * sampleRate * 0.5f;
 	if (frequency <= 0.0f || concertAHz <= 0.0f)
-		return 0.0f;
-	return fract(log(frequency / concertAHz) / log(2.0f));
+		return -1.0f;
+	float lowestTrackedFrequency = concertAHz / 8.0f;
+	return log(frequency / lowestTrackedFrequency) / log(2.0f) / 6.0f;
 }
 
 float trackedPitchConfidence(sampler2D sourceTexture, float frequencyPosition, float historyPosition) {
-	return texture(sourceTexture, vec2(pitchClassPosition(frequencyPosition), historyPosition)).r;
+	float trackedPosition = trackedPitchPosition(frequencyPosition);
+	if (trackedPosition < 0.0f || trackedPosition >= 1.0f)
+		return 0.0f;
+	return texture(sourceTexture, vec2(trackedPosition, historyPosition)).r;
 }
 
 vec4 spectrumColour(float decibels, float frequencyPosition, float salience, float pitchConfidence) {

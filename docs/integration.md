@@ -37,9 +37,9 @@ analyzer->prepare(sampleRate);
 
 Call `prepare()` whenever the audio sample rate changes. Stop the producer and analysis worker before calling `reset()` or destroying the analyzer.
 
-`Spectrogram::process()` accepts a `juce::AudioSourceChannelInfo`, downmixes all supplied channels to mono, and publishes complete normalized spectrum rows. In parallel it updates a logarithmic resonator bank, folds matching bins across six octaves, interpolates and tracks note peaks, and publishes a circular pitch-class confidence row with the same sequence number. It may perform windowing, FFTs, logarithms, pitch tracking, buffer movement, and synchronization, so it belongs on an analysis worker—not an audio callback.
+`Spectrogram::process()` accepts a `juce::AudioSourceChannelInfo`, downmixes all supplied channels to mono, and publishes complete normalized spectrum rows. In parallel it updates a logarithmic resonator bank, estimates an adaptive signal and noise level, interpolates local peaks, rejects peaks explained as harmonics of lower notes, and publishes an absolute tracked-fundamental confidence row with the same sequence number. It may perform windowing, FFTs, logarithms, pitch tracking, buffer movement, and synchronization, so it belongs on an analysis worker—not an audio callback.
 
-Use `copySpectrumFramesAfter()` when only FFT data is needed. `copyAnalysisFramesAfter()` returns synchronized FFT and pitch rows for consumers that need both. `copyLatestPitchClass()` exposes the newest 256-sample circular pitch field, where position zero is concert A and a complete row spans one octave. `setConcertAHz()` changes both the tuning grid and the visualization reference safely at the next analysis hop.
+Use `copySpectrumFramesAfter()` when only FFT data is needed. `copyAnalysisFramesAfter()` returns synchronized FFT and pitch rows for consumers that need both. `copyLatestPitchClass()` exposes the newest 256-sample tracked-fundamental field. Despite its compatibility name, the field is absolute rather than folded: position zero is concert A divided by eight and the row spans six octaves logarithmically. `setConcertAHz()` changes both the tuning grid and the visualization reference safely at the next analysis hop.
 
 ## Realtime-safe handoff
 

@@ -9,9 +9,9 @@
 #include <array>
 
 // A low-latency logarithmic pitch analyser. It maintains a constant-Q-like
-// resonator bank, folds matching bins across octaves, interpolates local peaks,
-// and tracks those peaks over time. The published field is circular: position
-// zero is concert A and one full texture width is one octave.
+// resonator bank, finds adaptive local peaks, rejects peaks explained as
+// harmonics of lower fundamentals, and tracks the remaining notes over time.
+// The published field spans six absolute octaves from concert A / 8.
 class PitchTracker {
 public:
 	static constexpr int binsPerOctave = 24;
@@ -53,6 +53,7 @@ private:
 	};
 
 	void rebuildResonators();
+	void findFundamentalPeaks();
 	void updateTrackedNotes();
 	void renderTrackedField(float* destination) const;
 
@@ -61,11 +62,16 @@ private:
 	float previousInput_ { 0.0f };
 	float dcBlockerOutput_ { 0.0f };
 	float dcBlockerCoefficient_ { 0.0f };
+	float currentInputPeak_ { 0.0f };
+	float adaptiveSignalLevel_ { 0.0f };
 
 	std::array<Resonator, analysisBinCount> resonators_ {};
-	std::array<float, binsPerOctave> foldedBins_ {};
-	std::array<float, binsPerOctave> smoothedBins_ {};
-	std::array<Peak, binsPerOctave> peaks_ {};
+	std::array<float, analysisBinCount> analysisBins_ {};
+	std::array<float, analysisBinCount> smoothedBins_ {};
+	std::array<float, analysisBinCount> sortedBins_ {};
+	std::array<Peak, analysisBinCount> candidatePeaks_ {};
+	std::array<Peak, maximumTrackedNotes> fundamentalPeaks_ {};
 	std::array<TrackedNote, maximumTrackedNotes> trackedNotes_ {};
-	int peakCount_ { 0 };
+	int candidatePeakCount_ { 0 };
+	int fundamentalPeakCount_ { 0 };
 };

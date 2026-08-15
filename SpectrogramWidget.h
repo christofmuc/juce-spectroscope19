@@ -38,8 +38,7 @@ public:
 
 private:
 	std::shared_ptr<juce::OpenGLTexture> createColorLookupTexture();
-	std::shared_ptr<OpenGLFloatTexture> createDataTexture(
-		int width, int height, float initialValue, bool repeatHorizontally = false);
+	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int width, int height, float initialValue);
 	void publishStatus(juce::String statusText);
 	void releaseOpenGLResources();
 	int pullAvailableFrames();

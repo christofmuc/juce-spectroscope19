@@ -51,24 +51,24 @@ int peakBin(const float* spectrum, int spectrumSize)
 	return static_cast<int>(std::distance(spectrum, peak));
 }
 
-float circularOutputDistance(int first, int second)
-{
-	const auto direct = std::abs(first - second);
-	return static_cast<float>(std::min(direct, PitchTracker::outputBinCount - direct));
-}
-
 int pitchFieldPeak(const std::vector<float>& field)
 {
 	return static_cast<int>(std::distance(field.begin(),
 		std::max_element(field.begin(), field.end())));
 }
 
-float pitchFieldAtSemitonesFromA(const std::vector<float>& field, float semitonesFromA)
+int pitchFieldBinForFrequency(double frequency, double concertA)
 {
-	const auto octavePosition = semitonesFromA / 12.0f - std::floor(semitonesFromA / 12.0f);
-	const auto index = static_cast<int>(std::floor(
-		octavePosition * static_cast<float>(PitchTracker::outputBinCount)))
-		% PitchTracker::outputBinCount;
+	const auto octavePosition = std::log2(frequency / (concertA / 8.0));
+	return static_cast<int>(std::floor(octavePosition / PitchTracker::octaveCount
+		* PitchTracker::outputBinCount));
+}
+
+float pitchFieldAtFrequency(const std::vector<float>& field, double frequency, double concertA)
+{
+	const auto index = pitchFieldBinForFrequency(frequency, concertA);
+	if (index < 0 || index >= static_cast<int>(field.size()))
+		return 0.0f;
 	return field[static_cast<std::size_t>(index)];
 }
 
@@ -144,9 +144,9 @@ bool testPitchTrackerStablePitchAndDetuning()
 	std::vector<float> field(PitchTracker::outputBinCount);
 	processPitchSignal(tracker, { c4 }, 80, field);
 
-	const auto expectedC = PitchTracker::outputBinCount / 4;
-	if (!expect(circularOutputDistance(pitchFieldPeak(field), expectedC) <= 3.0f,
-		"tracked C should peak at its octave-relative pitch position")
+	const auto expectedC = pitchFieldBinForFrequency(c4, concertA);
+	if (!expect(std::abs(pitchFieldPeak(field) - expectedC) <= 3,
+		"tracked C should peak at its absolute log-frequency position")
 		|| !expect(*std::max_element(field.begin(), field.end()) > 0.7f,
 			"a sustained pure tone should become a confident tracked note")) {
 		return false;
@@ -156,9 +156,8 @@ bool testPitchTrackerStablePitchAndDetuning()
 	constexpr double detuningCents = 20.0;
 	const auto sharpC = c4 * std::pow(2.0, detuningCents / 1200.0);
 	processPitchSignal(tracker, { sharpC }, 80, field);
-	const auto expectedSharpC = static_cast<int>(std::lround(
-		(3.0 + detuningCents / 100.0) / 12.0 * PitchTracker::outputBinCount));
-	return expect(circularOutputDistance(pitchFieldPeak(field), expectedSharpC) <= 4.0f,
+	const auto expectedSharpC = pitchFieldBinForFrequency(sharpC, concertA);
+	return expect(std::abs(pitchFieldPeak(field) - expectedSharpC) <= 4,
 		"interpolated tracked pitch should follow a sharp input between note centres");
 }
 
@@ -175,25 +174,30 @@ bool testPitchTrackerChordAndRelease()
 		{ frequencyForSemitones(3.0), frequencyForSemitones(7.0), frequencyForSemitones(10.0) },
 		100, field);
 
-	if (!expect(pitchFieldAtSemitonesFromA(field, 3.0f) > 0.25f,
+	const auto c3 = frequencyForSemitones(3.0);
+	const auto e3 = frequencyForSemitones(7.0);
+	const auto g3 = frequencyForSemitones(10.0);
+	if (!expect(pitchFieldAtFrequency(field, c3, concertA) > 0.25f,
 		"C in a C-major chord should be tracked")
-		|| !expect(pitchFieldAtSemitonesFromA(field, 7.0f) > 0.25f,
+		|| !expect(pitchFieldAtFrequency(field, e3, concertA) > 0.25f,
 			"E in a C-major chord should be tracked")
-		|| !expect(pitchFieldAtSemitonesFromA(field, 10.0f) > 0.25f,
+		|| !expect(pitchFieldAtFrequency(field, g3, concertA) > 0.25f,
 			"G in a C-major chord should be tracked")) {
 		return false;
 	}
 
-	const auto strengthBeforeSilence = pitchFieldAtSemitonesFromA(field, 3.0f);
+	const auto strengthBeforeSilence = pitchFieldAtFrequency(field, c3, concertA);
 	processPitchSignal(tracker, {}, 1, field);
-	if (!expect(pitchFieldAtSemitonesFromA(field, 3.0f) > strengthBeforeSilence * 0.75f,
+	if (!expect(pitchFieldAtFrequency(field, c3, concertA) > strengthBeforeSilence * 0.75f,
 		"a tracked note should not disappear on the first silent frame")) {
 		return false;
 	}
 
 	processPitchSignal(tracker, {}, 100, field);
-	return expect(*std::max_element(field.begin(), field.end()) < 0.05f,
-		"tracked notes should eventually release to silence");
+	const auto releasedStrength = *std::max_element(field.begin(), field.end());
+	return expect(releasedStrength < 0.05f,
+		"tracked notes should eventually release to silence (remaining confidence "
+			+ std::to_string(releasedStrength) + ")");
 }
 
 bool testPitchTrackerHarmonicMusicalTone()
@@ -205,8 +209,13 @@ bool testPitchTrackerHarmonicMusicalTone()
 	std::vector<float> field(PitchTracker::outputBinCount);
 	processHarmonicPitchSignal(tracker, a3, 24, field);
 
-	return expect(pitchFieldAtSemitonesFromA(field, 0.0f) > 0.15f,
-		"a short harmonic-rich, noisy and amplitude-modulated note should produce visible pitch confidence");
+	const auto fundamentalStrength = pitchFieldAtFrequency(field, a3, concertA);
+	return expect(fundamentalStrength > 0.15f,
+		"a short harmonic-rich, noisy and amplitude-modulated note should produce visible pitch confidence")
+		&& expect(pitchFieldAtFrequency(field, a3 * 2.0, concertA) < fundamentalStrength * 0.35f,
+			"an octave harmonic should remain grey rather than becoming another coloured note")
+		&& expect(pitchFieldAtFrequency(field, a3 * 3.0, concertA) < fundamentalStrength * 0.35f,
+			"a non-octave harmonic should remain grey rather than becoming another coloured note");
 }
 
 bool testPitchTrackerRejectsBroadbandNoise()
@@ -227,8 +236,10 @@ bool testPitchTrackerRejectsBroadbandNoise()
 		tracker.calculate(field.data(), static_cast<int>(field.size()));
 	}
 
-	return expect(*std::max_element(field.begin(), field.end()) < 0.2f,
-		"stationary broadband noise should not become a strongly tracked note");
+	const auto noiseConfidence = *std::max_element(field.begin(), field.end());
+	return expect(noiseConfidence < 0.2f,
+		"stationary broadband noise should not become a strongly tracked note (confidence "
+			+ std::to_string(noiseConfidence) + ")");
 }
 
 bool testSpectrogramPublishesTrackedPitch()
@@ -253,7 +264,7 @@ bool testSpectrogramPublishesTrackedPitch()
 		"spectrogram should publish the latest tracked pitch field")
 		&& expect(pitchSequence == analyzer.sequence(),
 			"latest pitch and FFT rows should share a sequence")
-		&& expect(pitchFieldAtSemitonesFromA(pitchClass, 3.0f) > 0.7f,
+		&& expect(pitchFieldAtFrequency(pitchClass, c3, concertA) > 0.7f,
 			"spectrogram should feed audio and its A4 reference into the pitch tracker");
 }
 
