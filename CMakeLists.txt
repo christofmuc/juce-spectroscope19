@@ -105,6 +105,7 @@ add_custom_command(
 )
 
 add_library(juce-spectroscope-analysis STATIC
+	FrequencyAxis.h
 	PitchTracker.cpp
 	PitchTracker.h
 	Spectrogram.cpp

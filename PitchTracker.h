@@ -14,6 +14,12 @@
 // The published field spans six absolute octaves from concert A / 8.
 class PitchTracker {
 public:
+	enum class Preset {
+		fast,
+		balanced,
+		stable
+	};
+
 	static constexpr int binsPerOctave = 24;
 	static constexpr int octaveCount = 6;
 	static constexpr int analysisBinCount = binsPerOctave * octaveCount;
@@ -23,12 +29,14 @@ public:
 	void prepare(double sampleRate, float concertAHz = 440.0f);
 	void reset();
 	void setConcertAHz(float frequencyHz);
+	void setPreset(Preset preset);
 
 	void process(const float* samples, int numSamples);
 	void calculate(float* destination, int destinationSize);
 
 	double sampleRate() const noexcept;
 	float concertAHz() const noexcept;
+	Preset preset() const noexcept;
 
 private:
 	struct Resonator {
@@ -52,6 +60,21 @@ private:
 		bool active { false };
 	};
 
+	struct PresetParameters {
+		float resonatorCycles;
+		float noteAttack;
+		float noteRelease;
+		float notePositionFollow;
+		float noteMatchDistance;
+		float fieldSigma;
+		float prominenceLower;
+		float prominenceUpper;
+		float coherenceLower;
+		float coherenceUpper;
+		float harmonicTolerance;
+	};
+
+	PresetParameters parameters() const noexcept;
 	void rebuildResonators();
 	void findFundamentalPeaks();
 	void updateTrackedNotes();
@@ -59,6 +82,7 @@ private:
 
 	double sampleRate_ { 0.0 };
 	float concertAHz_ { 440.0f };
+	Preset preset_ { Preset::balanced };
 	float previousInput_ { 0.0f };
 	float dcBlockerOutput_ { 0.0f };
 	float dcBlockerCoefficient_ { 0.0f };

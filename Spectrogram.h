@@ -65,6 +65,8 @@ public:
 	// Thread-safe tuning target; the analysis worker applies changes at the next hop.
 	void setConcertAHz(float frequencyHz) noexcept;
 	float concertAHz() const noexcept;
+	void setPitchTrackingPreset(PitchTracker::Preset preset) noexcept;
+	PitchTracker::Preset pitchTrackingPreset() const noexcept;
 
 	std::uint64_t sequence() const noexcept;
 	std::uint64_t droppedSamples() const noexcept;
@@ -104,4 +106,5 @@ private:
 	std::atomic<std::uint64_t> droppedSamples_ { 0 };
 	std::atomic<double> sampleRate_ { 0.0 };
 	std::atomic<float> concertAHz_ { 440.0f };
+	std::atomic<PitchTracker::Preset> pitchTrackingPreset_ { PitchTracker::Preset::balanced };
 };

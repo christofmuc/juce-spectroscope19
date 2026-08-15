@@ -109,6 +109,7 @@ MainComponent::MainComponent(bool startAudio)
 	addAndMakeVisible(horizontalButton_);
 	addAndMakeVisible(pitchColourButton_);
 	addAndMakeVisible(trackedNotesButton_);
+	addAndMakeVisible(trackingPresetBox_);
 	addAndMakeVisible(concertALabel_);
 	addAndMakeVisible(concertASlider_);
 	addAndMakeVisible(statusLabel_);
@@ -116,6 +117,11 @@ MainComponent::MainComponent(bool startAudio)
 
 	logarithmicButton_.setToggleState(true, juce::dontSendNotification);
 	pitchColourButton_.setToggleState(true, juce::dontSendNotification);
+	trackingPresetBox_.addItem("Fast", 1);
+	trackingPresetBox_.addItem("Balanced", 2);
+	trackingPresetBox_.addItem("Stable", 3);
+	trackingPresetBox_.setSelectedId(2, juce::dontSendNotification);
+	trackingPresetBox_.setTooltip("Pitch tracking response: Fast, Balanced, or Stable");
 	concertALabel_.setText("A4 reference", juce::dontSendNotification);
 	concertALabel_.setJustificationType(juce::Justification::centredRight);
 	concertASlider_.setRange(415.0, 466.0, 0.1);
@@ -141,6 +147,20 @@ MainComponent::MainComponent(bool startAudio)
 	};
 	trackedNotesButton_.onClick = [this] {
 		spectrogram_.setTrackedNoteOverlayEnabled(trackedNotesButton_.getToggleState());
+	};
+	trackingPresetBox_.onChange = [this] {
+		switch (trackingPresetBox_.getSelectedId()) {
+		case 1:
+			spectrogram_.setPitchTrackingPreset(PitchTracker::Preset::fast);
+			break;
+		case 3:
+			spectrogram_.setPitchTrackingPreset(PitchTracker::Preset::stable);
+			break;
+		case 2:
+		default:
+			spectrogram_.setPitchTrackingPreset(PitchTracker::Preset::balanced);
+			break;
+		}
 	};
 	concertASlider_.onValueChange = [this] {
 		spectrogram_.setConcertAHz(static_cast<float>(concertASlider_.getValue()));
@@ -194,9 +214,10 @@ void MainComponent::resized()
 	horizontalButton_.setBounds(firstRow.removeFromLeft(160));
 	pitchColourButton_.setBounds(firstRow.removeFromLeft(130));
 	trackedNotesButton_.setBounds(firstRow.removeFromLeft(130));
-	statusLabel_.setBounds(firstRow);
+	trackingPresetBox_.setBounds(firstRow.removeFromLeft(110).reduced(2));
 	concertALabel_.setBounds(secondRow.removeFromLeft(100));
 	concertASlider_.setBounds(secondRow.removeFromLeft(220));
+	statusLabel_.setBounds(secondRow);
 
 	area.removeFromBottom(8);
 	deviceSelector_.setBounds(area);

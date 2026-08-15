@@ -13,15 +13,9 @@
 namespace {
 constexpr float minimumConcertAHz = 400.0f;
 constexpr float maximumConcertAHz = 480.0f;
-constexpr float resonatorCycles = 6.0f;
 constexpr float levelAttack = 0.35f;
 constexpr float levelRelease = 0.015f;
-constexpr float noteAttack = 0.65f;
-constexpr float noteRelease = 0.86f;
-constexpr float notePositionFollow = 0.35f;
-constexpr float noteMatchDistance = 2.0f;
 constexpr float noteRemovalStrength = 0.01f;
-constexpr float fieldSigma = 0.82f;
 
 float clamp01(float value)
 {
@@ -73,6 +67,15 @@ void PitchTracker::setConcertAHz(float frequencyHz)
 		return;
 
 	concertAHz_ = clampedFrequency;
+	rebuildResonators();
+	reset();
+}
+
+void PitchTracker::setPreset(Preset newPreset)
+{
+	if (newPreset == preset_)
+		return;
+	preset_ = newPreset;
 	rebuildResonators();
 	reset();
 }
@@ -154,6 +157,27 @@ float PitchTracker::concertAHz() const noexcept
 	return concertAHz_;
 }
 
+PitchTracker::Preset PitchTracker::preset() const noexcept
+{
+	return preset_;
+}
+
+PitchTracker::PresetParameters PitchTracker::parameters() const noexcept
+{
+	switch (preset_) {
+	case Preset::fast:
+		return { 4.0f, 0.80f, 0.75f, 0.60f, 3.0f, 1.10f,
+			0.004f, 0.10f, 0.12f, 0.45f, 1.00f };
+	case Preset::stable:
+		return { 12.0f, 0.45f, 0.93f, 0.25f, 1.5f, 0.65f,
+			0.03f, 0.25f, 0.05f, 0.25f, 0.50f };
+	case Preset::balanced:
+	default:
+		return { 6.0f, 0.65f, 0.86f, 0.35f, 2.0f, 0.82f,
+			0.01f, 0.15f, 0.08f, 0.35f, 0.65f };
+	}
+}
+
 void PitchTracker::rebuildResonators()
 {
 	if (sampleRate_ <= 0.0) {
@@ -163,6 +187,7 @@ void PitchTracker::rebuildResonators()
 		return;
 	}
 
+	const auto presetParameters = parameters();
 	const auto lowestA = static_cast<double>(concertAHz_) / 8.0;
 	const auto twoPi = 2.0 * std::acos(-1.0);
 	for (int bin = 0; bin < analysisBinCount; ++bin) {
@@ -173,7 +198,7 @@ void PitchTracker::rebuildResonators()
 		resonator.cosineStep = static_cast<float>(std::cos(radians));
 		resonator.sineStep = static_cast<float>(std::sin(radians));
 		resonator.decay = static_cast<float>(std::exp(
-			-frequency / (static_cast<double>(resonatorCycles) * sampleRate_)));
+			-frequency / (static_cast<double>(presetParameters.resonatorCycles) * sampleRate_)));
 	}
 
 	dcBlockerCoefficient_ = static_cast<float>(std::exp(-twoPi * 20.0 / sampleRate_));
@@ -181,6 +206,7 @@ void PitchTracker::rebuildResonators()
 
 void PitchTracker::findFundamentalPeaks()
 {
+	const auto presetParameters = parameters();
 	candidatePeakCount_ = 0;
 	fundamentalPeakCount_ = 0;
 	const auto maximumBin = *std::max_element(smoothedBins_.begin(), smoothedBins_.end());
@@ -212,9 +238,11 @@ void PitchTracker::findFundamentalPeaks()
 		const auto relativeLevel = centre / std::max(adaptiveSignalLevel_, maximumBin * 0.25f);
 		const auto coherentLevel = centre / std::max(currentInputPeak_, 0.000001f);
 		const auto strength = std::sqrt(clamp01(relativeLevel))
-			* smoothStep(0.01f, 0.15f, localProminence)
+			* smoothStep(presetParameters.prominenceLower,
+				presetParameters.prominenceUpper, localProminence)
 			* smoothStep(0.35f, 0.90f, noiseContrast)
-			* smoothStep(0.08f, 0.35f, coherentLevel);
+			* smoothStep(presetParameters.coherenceLower,
+				presetParameters.coherenceUpper, coherentLevel);
 		if (strength < 0.025f)
 			continue;
 
@@ -243,7 +271,7 @@ void PitchTracker::findFundamentalPeaks()
 				continue;
 			const auto harmonicDistance = std::abs(static_cast<float>(binsPerOctave)
 				* std::log2(ratio / harmonic));
-			if (harmonicDistance < 0.65f && lower.strength > 0.06f) {
+			if (harmonicDistance < presetParameters.harmonicTolerance && lower.strength > 0.06f) {
 				explainedByHarmonic = true;
 				break;
 			}
@@ -255,11 +283,12 @@ void PitchTracker::findFundamentalPeaks()
 
 void PitchTracker::updateTrackedNotes()
 {
+	const auto presetParameters = parameters();
 	std::array<bool, maximumTrackedNotes> matchedTracks {};
 	for (int peakIndex = 0; peakIndex < fundamentalPeakCount_; ++peakIndex) {
 		const auto& peak = fundamentalPeaks_[static_cast<std::size_t>(peakIndex)];
 		int bestTrack = -1;
-		auto bestDistance = noteMatchDistance;
+		auto bestDistance = presetParameters.noteMatchDistance;
 		for (int trackIndex = 0; trackIndex < maximumTrackedNotes; ++trackIndex) {
 			const auto& track = trackedNotes_[static_cast<std::size_t>(trackIndex)];
 			if (!track.active || matchedTracks[static_cast<std::size_t>(trackIndex)])
@@ -285,11 +314,11 @@ void PitchTracker::updateTrackedNotes()
 		auto& track = trackedNotes_[static_cast<std::size_t>(bestTrack)];
 		if (!track.active) {
 			track.position = peak.position;
-			track.strength = peak.strength * noteAttack;
+			track.strength = peak.strength * presetParameters.noteAttack;
 			track.active = true;
 		} else {
-			track.position += notePositionFollow * (peak.position - track.position);
-			track.strength += noteAttack * (peak.strength - track.strength);
+			track.position += presetParameters.notePositionFollow * (peak.position - track.position);
+			track.strength += presetParameters.noteAttack * (peak.strength - track.strength);
 		}
 		matchedTracks[static_cast<std::size_t>(bestTrack)] = true;
 	}
@@ -298,7 +327,7 @@ void PitchTracker::updateTrackedNotes()
 		auto& track = trackedNotes_[static_cast<std::size_t>(trackIndex)];
 		if (!track.active || matchedTracks[static_cast<std::size_t>(trackIndex)])
 			continue;
-		track.strength *= noteRelease;
+		track.strength *= presetParameters.noteRelease;
 		if (track.strength < noteRemovalStrength)
 			track = {};
 	}
@@ -306,6 +335,7 @@ void PitchTracker::updateTrackedNotes()
 
 void PitchTracker::renderTrackedField(float* destination) const
 {
+	const auto presetParameters = parameters();
 	std::fill_n(destination, outputBinCount, 0.0f);
 	for (const auto& note : trackedNotes_) {
 		if (!note.active)
@@ -314,7 +344,8 @@ void PitchTracker::renderTrackedField(float* destination) const
 			const auto position = (static_cast<float>(outputBin) + 0.5f)
 				* static_cast<float>(analysisBinCount) / static_cast<float>(outputBinCount);
 			const auto distance = std::abs(position - note.position);
-			const auto gaussian = std::exp(-0.5f * distance * distance / (fieldSigma * fieldSigma));
+			const auto gaussian = std::exp(-0.5f * distance * distance
+				/ (presetParameters.fieldSigma * presetParameters.fieldSigma));
 			auto& output = destination[outputBin];
 			output = std::max(output, clamp01(note.strength * gaussian));
 		}

@@ -1,3 +1,4 @@
+#include "FrequencyAxis.h"
 #include "PitchTracker.h"
 #include "Spectrogram.h"
 #include "TrackedPitch.h"
@@ -71,6 +72,33 @@ float pitchFieldAtFrequency(const std::vector<float>& field, double frequency, d
 	if (index < 0 || index >= static_cast<int>(field.size()))
 		return 0.0f;
 	return field[static_cast<std::size_t>(index)];
+}
+
+int blocksUntilPitchVisible(PitchTracker::Preset preset, double frequency,
+	float visibleConfidence = 0.15f, int maximumBlocks = 30)
+{
+	constexpr int blockSize = 512;
+	constexpr double sampleRate = 48000.0;
+	constexpr double concertA = 440.0;
+	PitchTracker tracker;
+	tracker.setPreset(preset);
+	tracker.prepare(sampleRate, static_cast<float>(concertA));
+	std::vector<float> samples(blockSize);
+	std::vector<float> field(PitchTracker::outputBinCount);
+	auto phase = 0.0;
+	for (int block = 1; block <= maximumBlocks; ++block) {
+		for (auto& sample : samples) {
+			sample = static_cast<float>(0.6 * std::sin(phase));
+			phase += juce::MathConstants<double>::twoPi * frequency / sampleRate;
+			if (phase >= juce::MathConstants<double>::twoPi)
+				phase -= juce::MathConstants<double>::twoPi;
+		}
+		tracker.process(samples.data(), blockSize);
+		tracker.calculate(field.data(), static_cast<int>(field.size()));
+		if (pitchFieldAtFrequency(field, frequency, concertA) >= visibleConfidence)
+			return block;
+	}
+	return maximumBlocks + 1;
 }
 
 void processPitchSignal(PitchTracker& tracker, const std::vector<double>& frequencies,
@@ -168,35 +196,10 @@ bool testPitchTrackerStablePitchAndDetuning()
 
 bool testPitchTrackerDetectionLatency()
 {
-	constexpr double sampleRate = 48000.0;
-	constexpr double concertA = 440.0;
-	constexpr int blockSize = 512;
-	constexpr float visibleConfidence = 0.15f;
-	auto blocksUntilVisible = [=](double frequency) {
-		PitchTracker tracker;
-		tracker.prepare(sampleRate, static_cast<float>(concertA));
-		std::vector<float> samples(blockSize);
-		std::vector<float> field(PitchTracker::outputBinCount);
-		auto phase = 0.0;
-		for (int block = 1; block <= 20; ++block) {
-			for (auto& sample : samples) {
-				sample = static_cast<float>(0.6 * std::sin(phase));
-				phase += juce::MathConstants<double>::twoPi * frequency / sampleRate;
-				if (phase >= juce::MathConstants<double>::twoPi)
-					phase -= juce::MathConstants<double>::twoPi;
-			}
-			tracker.process(samples.data(), blockSize);
-			tracker.calculate(field.data(), static_cast<int>(field.size()));
-			if (pitchFieldAtFrequency(field, frequency, concertA) >= visibleConfidence)
-				return block;
-		}
-		return 21;
-	};
-
-	const auto a1Blocks = blocksUntilVisible(55.0);
-	const auto a2Blocks = blocksUntilVisible(110.0);
-	const auto a3Blocks = blocksUntilVisible(220.0);
-	const auto a4Blocks = blocksUntilVisible(440.0);
+	const auto a1Blocks = blocksUntilPitchVisible(PitchTracker::Preset::balanced, 55.0);
+	const auto a2Blocks = blocksUntilPitchVisible(PitchTracker::Preset::balanced, 110.0);
+	const auto a3Blocks = blocksUntilPitchVisible(PitchTracker::Preset::balanced, 220.0);
+	const auto a4Blocks = blocksUntilPitchVisible(PitchTracker::Preset::balanced, 440.0);
 	std::cout << "Pitch onset hops: A1=" << a1Blocks << ", A2=" << a2Blocks
 		<< ", A3=" << a3Blocks << ", A4=" << a4Blocks << '\n';
 	return expect(a1Blocks <= 12,
@@ -207,6 +210,37 @@ bool testPitchTrackerDetectionLatency()
 			"A3 should become visible within 54 ms (took " + std::to_string(a3Blocks) + " hops)")
 		&& expect(a4Blocks <= 4,
 			"A4 should become visible within 43 ms (took " + std::to_string(a4Blocks) + " hops)");
+}
+
+bool testPitchTrackerPresets()
+{
+	PitchTracker tracker;
+	if (!expect(tracker.preset() == PitchTracker::Preset::balanced,
+		"balanced should remain the default tracking preset")) {
+		return false;
+	}
+	tracker.setPreset(PitchTracker::Preset::fast);
+	if (!expect(tracker.preset() == PitchTracker::Preset::fast,
+		"the selected tracking preset should be observable")) {
+		return false;
+	}
+
+	const auto fastBlocks = blocksUntilPitchVisible(PitchTracker::Preset::fast, 110.0);
+	const auto balancedBlocks = blocksUntilPitchVisible(PitchTracker::Preset::balanced, 110.0);
+	const auto stableBlocks = blocksUntilPitchVisible(PitchTracker::Preset::stable, 110.0);
+	std::cout << "A2 preset onset hops: fast=" << fastBlocks
+		<< ", balanced=" << balancedBlocks << ", stable=" << stableBlocks << '\n';
+	if (!expect(fastBlocks <= balancedBlocks,
+		"Fast should not react more slowly than Balanced")
+		|| !expect(balancedBlocks <= stableBlocks,
+			"Stable should not react faster than Balanced")) {
+		return false;
+	}
+
+	Spectrogram analyzer;
+	analyzer.setPitchTrackingPreset(PitchTracker::Preset::stable);
+	return expect(analyzer.pitchTrackingPreset() == PitchTracker::Preset::stable,
+		"the analyzer should expose the preset selected by its UI consumer");
 }
 
 bool testTrackedPitchMusicalValues()
@@ -298,26 +332,33 @@ bool testPitchTrackerHarmonicMusicalTone()
 
 bool testPitchTrackerRejectsBroadbandNoise()
 {
-	PitchTracker tracker;
-	tracker.prepare(48000.0, 440.0f);
-	std::vector<float> field(PitchTracker::outputBinCount);
-	std::vector<float> noise(512);
-	std::uint32_t randomState = 0x12345678u;
-	for (int block = 0; block < 150; ++block) {
-		for (auto& sample : noise) {
-			randomState = randomState * 1664525u + 1013904223u;
-			const auto normalised = static_cast<float>((randomState >> 8) & 0x00ffffffu)
-				/ static_cast<float>(0x00ffffffu);
-			sample = 0.3f * (normalised * 2.0f - 1.0f);
+	for (const auto preset : { PitchTracker::Preset::fast,
+		PitchTracker::Preset::balanced, PitchTracker::Preset::stable }) {
+		PitchTracker tracker;
+		tracker.setPreset(preset);
+		tracker.prepare(48000.0, 440.0f);
+		std::vector<float> field(PitchTracker::outputBinCount);
+		std::vector<float> noise(512);
+		std::uint32_t randomState = 0x12345678u;
+		for (int block = 0; block < 150; ++block) {
+			for (auto& sample : noise) {
+				randomState = randomState * 1664525u + 1013904223u;
+				const auto normalised = static_cast<float>((randomState >> 8) & 0x00ffffffu)
+					/ static_cast<float>(0x00ffffffu);
+				sample = 0.3f * (normalised * 2.0f - 1.0f);
+			}
+			tracker.process(noise.data(), static_cast<int>(noise.size()));
+			tracker.calculate(field.data(), static_cast<int>(field.size()));
 		}
-		tracker.process(noise.data(), static_cast<int>(noise.size()));
-		tracker.calculate(field.data(), static_cast<int>(field.size()));
-	}
 
-	const auto noiseConfidence = *std::max_element(field.begin(), field.end());
-	return expect(noiseConfidence < 0.2f,
-		"stationary broadband noise should not become a strongly tracked note (confidence "
-			+ std::to_string(noiseConfidence) + ")");
+		const auto noiseConfidence = *std::max_element(field.begin(), field.end());
+		if (!expect(noiseConfidence < 0.2f,
+			"stationary broadband noise should not become a strongly tracked note in any preset "
+			"(confidence " + std::to_string(noiseConfidence) + ")")) {
+			return false;
+		}
+	}
+	return true;
 }
 
 bool testSpectrogramPublishesTrackedPitch()
@@ -528,18 +569,49 @@ bool testWaterfallTimelineMapping()
 
 	return true;
 }
+
+bool testFrequencyAxisMapping()
+{
+	constexpr double sampleRate = 48000.0;
+	constexpr double minimumFrequency = sampleRate / 2048.0;
+	const auto logMinimum = spectroscope::frequency_axis::normalisedPosition(
+		minimumFrequency, sampleRate, minimumFrequency, true);
+	const auto logNyquist = spectroscope::frequency_axis::normalisedPosition(
+		sampleRate * 0.5, sampleRate, minimumFrequency, true);
+	const auto a4 = spectroscope::frequency_axis::normalisedPosition(
+		440.0, sampleRate, minimumFrequency, true);
+	const auto linearMidpoint = spectroscope::frequency_axis::normalisedPosition(
+		sampleRate * 0.25, sampleRate, minimumFrequency, false);
+
+	return expect(approximatelyEqual(logMinimum, 0.0f),
+		"the logarithmic overlay should align its minimum with the shader's left edge")
+		&& expect(approximatelyEqual(logNyquist, 1.0f),
+			"the logarithmic overlay should align Nyquist with the shader's right edge")
+		&& expect(a4 > 0.0f && a4 < 1.0f,
+			"an audible tracked pitch should map inside the frequency axis")
+		&& expect(approximatelyEqual(linearMidpoint, 0.5f),
+			"the linear overlay should use the same normalized coordinate as the shader")
+		&& expect(approximatelyEqual(
+			spectroscope::frequency_axis::horizontalScreenPosition(0.0f), 1.0f),
+			"horizontal mode should place the lowest frequency at the screen bottom")
+		&& expect(approximatelyEqual(
+			spectroscope::frequency_axis::horizontalScreenPosition(1.0f), 0.0f),
+			"horizontal mode should place Nyquist at the screen top");
+}
 }
 
 int main()
 {
 	const auto passed = testPitchTrackerStablePitchAndDetuning() && testPitchTrackerDetectionLatency()
+		&& testPitchTrackerPresets()
 		&& testTrackedPitchMusicalValues()
 		&& testPitchTrackerChordAndRelease()
 		&& testPitchTrackerHarmonicMusicalTone()
 		&& testPitchTrackerRejectsBroadbandNoise()
 		&& testSpectrogramPublishesTrackedPitch()
 		&& testSilence() && testBinCentredSine() && testResetAndOverflow()
-		&& testSpectrumFrameHistoryOrderAndWraparound() && testWaterfallTimelineMapping();
+		&& testSpectrumFrameHistoryOrderAndWraparound() && testWaterfallTimelineMapping()
+		&& testFrequencyAxisMapping();
 	if (passed)
 		std::cout << "All spectrogram analyzer tests passed\n";
 	return passed ? EXIT_SUCCESS : EXIT_FAILURE;

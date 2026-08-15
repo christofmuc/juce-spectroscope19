@@ -85,6 +85,7 @@ float Spectrogram::floorDb() const noexcept
 void Spectrogram::prepare(double newSampleRate)
 {
 	sampleRate_.store(newSampleRate > 0.0 ? newSampleRate : 0.0, std::memory_order_relaxed);
+	pitchTracker_.setPreset(pitchTrackingPreset_.load(std::memory_order_relaxed));
 	pitchTracker_.prepare(sampleRate_.load(std::memory_order_relaxed),
 		concertAHz_.load(std::memory_order_relaxed));
 	reset();
@@ -122,6 +123,7 @@ int Spectrogram::process(const juce::AudioSourceChannelInfo& data)
 	int rowsProduced = 0;
 	while (fifo_.getNumReady() >= hopSize_) {
 		readHop();
+		pitchTracker_.setPreset(pitchTrackingPreset_.load(std::memory_order_relaxed));
 		pitchTracker_.setConcertAHz(concertAHz_.load(std::memory_order_relaxed));
 		pitchTracker_.process(hopBuffer_.getReadPointer(0), hopSize_);
 		appendHop();
@@ -269,6 +271,16 @@ void Spectrogram::setConcertAHz(float frequencyHz) noexcept
 float Spectrogram::concertAHz() const noexcept
 {
 	return concertAHz_.load(std::memory_order_relaxed);
+}
+
+void Spectrogram::setPitchTrackingPreset(PitchTracker::Preset preset) noexcept
+{
+	pitchTrackingPreset_.store(preset, std::memory_order_relaxed);
+}
+
+PitchTracker::Preset Spectrogram::pitchTrackingPreset() const noexcept
+{
+	return pitchTrackingPreset_.load(std::memory_order_relaxed);
 }
 
 std::uint64_t Spectrogram::sequence() const noexcept

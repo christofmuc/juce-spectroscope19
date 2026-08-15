@@ -72,6 +72,7 @@ private:
 	juce::ToggleButton horizontalButton_ { "Horizontal history" };
 	juce::ToggleButton pitchColourButton_ { "Pitch colours" };
 	juce::ToggleButton trackedNotesButton_ { "Tracked notes" };
+	juce::ComboBox trackingPresetBox_;
 	juce::Label concertALabel_;
 	juce::Slider concertASlider_;
 	juce::Label statusLabel_;

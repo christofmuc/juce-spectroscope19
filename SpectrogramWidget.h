@@ -11,10 +11,12 @@
 #include "OpenGLFloatTexture.h"
 #include "ShaderBasedComponent.h"
 #include "Spectrogram.h"
+#include "TrackedPitch.h"
 
 #include <atomic>
 #include <array>
 #include <cstdint>
+#include <memory>
 
 class SpectrogramWidget final : public ShaderBasedComponent {
 public:
@@ -34,14 +36,18 @@ public:
 	void setHorizontalMode(bool horizontal);
 	void setPitchColourMode(bool enabled);
 	void setTrackedNoteOverlayEnabled(bool enabled);
+	void setPitchTrackingPreset(PitchTracker::Preset preset);
 	void setConcertAHz(float frequencyHz);
 	bool isOpenGLReady() const noexcept;
 
 private:
+	class TrackedNotesOverlay;
+
 	std::shared_ptr<juce::OpenGLTexture> createColorLookupTexture();
 	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int width, int height, float initialValue);
 	void publishStatus(juce::String statusText);
-	void publishTrackedNoteText(juce::String noteText);
+	void publishTrackedNotes(std::array<spectroscope::TrackedPitch, 6> notes, int noteCount,
+		double sampleRate, double minimumFrequencyHz);
 	void updateTrackedNoteOverlay(const Spectrogram& analyzer);
 	void releaseOpenGLResources();
 	int pullAvailableFrames();
@@ -91,10 +97,9 @@ private:
 	float upperHalfPercentage_ { 0.618f };
 	std::atomic<bool> openGLReady_ { false };
 	double nextTrackedNoteUpdateMs_ { 0.0 };
-	juce::String lastTrackedNoteText_;
 
 	juce::Label statusLabel_;
-	juce::Label trackedNotesLabel_;
+	std::unique_ptr<TrackedNotesOverlay> trackedNotesOverlay_;
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpectrogramWidget)
 };
