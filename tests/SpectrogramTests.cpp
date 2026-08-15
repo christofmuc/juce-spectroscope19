@@ -97,6 +97,44 @@ void processPitchSignal(PitchTracker& tracker, const std::vector<double>& freque
 	}
 }
 
+void processHarmonicPitchSignal(PitchTracker& tracker, double fundamental,
+	int blockCount, std::vector<float>& field)
+{
+	constexpr int blockSize = 512;
+	constexpr double sampleRate = 48000.0;
+	constexpr int harmonicCount = 8;
+	std::array<double, harmonicCount> phases {};
+	std::vector<float> samples(blockSize);
+	std::uint32_t randomState = 0x87654321u;
+	for (int block = 0; block < blockCount; ++block) {
+		for (int sample = 0; sample < blockSize; ++sample) {
+			auto value = 0.0;
+			for (int harmonic = 1; harmonic <= harmonicCount; ++harmonic) {
+				value += std::sin(phases[static_cast<std::size_t>(harmonic - 1)])
+					/ static_cast<double>(harmonic);
+				phases[static_cast<std::size_t>(harmonic - 1)] +=
+					juce::MathConstants<double>::twoPi * fundamental
+					* static_cast<double>(harmonic) / sampleRate;
+				if (phases[static_cast<std::size_t>(harmonic - 1)]
+					>= juce::MathConstants<double>::twoPi) {
+					phases[static_cast<std::size_t>(harmonic - 1)]
+						-= juce::MathConstants<double>::twoPi;
+				}
+			}
+			randomState = randomState * 1664525u + 1013904223u;
+			const auto noise = static_cast<double>((randomState >> 8) & 0x00ffffffu)
+				/ static_cast<double>(0x00ffffffu) * 2.0 - 1.0;
+			const auto tremolo = 0.75 + 0.25 * std::sin(
+				juce::MathConstants<double>::twoPi * 4.5
+				* static_cast<double>(block * blockSize + sample) / sampleRate);
+			samples[static_cast<std::size_t>(sample)] =
+				static_cast<float>(0.35 * tremolo * value + 0.015 * noise);
+		}
+		tracker.process(samples.data(), blockSize);
+		tracker.calculate(field.data(), static_cast<int>(field.size()));
+	}
+}
+
 bool testPitchTrackerStablePitchAndDetuning()
 {
 	constexpr double concertA = 440.0;
@@ -156,6 +194,19 @@ bool testPitchTrackerChordAndRelease()
 	processPitchSignal(tracker, {}, 100, field);
 	return expect(*std::max_element(field.begin(), field.end()) < 0.05f,
 		"tracked notes should eventually release to silence");
+}
+
+bool testPitchTrackerHarmonicMusicalTone()
+{
+	constexpr double concertA = 440.0;
+	const auto a3 = concertA * 0.5;
+	PitchTracker tracker;
+	tracker.prepare(48000.0, static_cast<float>(concertA));
+	std::vector<float> field(PitchTracker::outputBinCount);
+	processHarmonicPitchSignal(tracker, a3, 24, field);
+
+	return expect(pitchFieldAtSemitonesFromA(field, 0.0f) > 0.15f,
+		"a short harmonic-rich, noisy and amplitude-modulated note should produce visible pitch confidence");
 }
 
 bool testPitchTrackerRejectsBroadbandNoise()
@@ -393,6 +444,7 @@ bool testWaterfallTimelineMapping()
 int main()
 {
 	const auto passed = testPitchTrackerStablePitchAndDetuning() && testPitchTrackerChordAndRelease()
+		&& testPitchTrackerHarmonicMusicalTone()
 		&& testPitchTrackerRejectsBroadbandNoise()
 		&& testSpectrogramPublishesTrackedPitch()
 		&& testSilence() && testBinCentredSine() && testResetAndOverflow()

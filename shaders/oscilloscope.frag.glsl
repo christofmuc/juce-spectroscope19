@@ -88,11 +88,14 @@ vec4 spectrumColour(float decibels, float frequencyPosition, float salience, flo
 	// Colour falls continuously from a tempered note centre to neutral grey at
 	// the midpoint between notes. The peak position shows whether it is flat or sharp.
 	float tuningSaturation = clamp(1.0f - centsFromNote / 50.0f, 0.0f, 1.0f);
-	float amplitudeConfidence = smoothstep(0.15f, 0.55f, linearIntensity);
-	float trackedConfidence = smoothstep(0.05f, 0.55f, pitchConfidence);
-	float spectralPeakConfidence = mix(0.35f, 1.0f, salience);
-	float saturation = tuningSaturation * trackedConfidence
-		* spectralPeakConfidence * amplitudeConfidence;
+	float amplitudeConfidence = smoothstep(0.08f, 0.42f, linearIntensity);
+	// Real instruments spread their energy over harmonics and seldom reach the
+	// confidence of a stationary sine. Treat tracking as soft evidence and use a
+	// square-root response so medium-confidence notes remain clearly visible.
+	float trackedConfidence = smoothstep(0.01f, 0.30f, pitchConfidence);
+	float spectralPeakConfidence = mix(0.55f, 1.0f, salience);
+	float colourEvidence = trackedConfidence * spectralPeakConfidence * amplitudeConfidence;
+	float saturation = tuningSaturation * sqrt(colourEvidence);
 	return vec4(hsvToRgb(vec3(hue, saturation, intensity)), 1.0f);
 }
 
