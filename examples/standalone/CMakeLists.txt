@@ -15,6 +15,12 @@ target_sources(JuceSpectroscopeDemo PRIVATE
 target_link_libraries(JuceSpectroscopeDemo PRIVATE juce-spectroscope19)
 target_compile_features(JuceSpectroscopeDemo PRIVATE cxx_std_17)
 
+if(WIN32 AND BUILD_TESTING)
+	add_test(NAME juce-spectroscope-demo-exit
+		COMMAND JuceSpectroscopeDemo --exit-smoke-test)
+	set_tests_properties(juce-spectroscope-demo-exit PROPERTIES TIMEOUT 15)
+endif()
+
 if(MSVC)
 	target_compile_options(JuceSpectroscopeDemo PRIVATE /W4 /WX)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

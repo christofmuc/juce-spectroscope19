@@ -19,6 +19,7 @@
 class SpectrogramWidget final : public ShaderBasedComponent {
 public:
 	explicit SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram);
+	~SpectrogramWidget() override;
 
 	void newOpenGLContextCreated() override;
 	void openGLContextClosing() override;

@@ -19,6 +19,9 @@ public:
 
 	void setContinuousRedrawing(bool run);
 	bool isRunning() const;
+	// Must run before the most-derived OpenGLRenderer is destroyed, because
+	// JUCE calls openGLContextClosing() synchronously while detaching.
+	void shutdownOpenGL();
 
 	static juce::String loadShader(juce::String const& filename);
 	static std::shared_ptr<juce::OpenGLShaderProgram::Uniform> createUniform(juce::OpenGLContext& openGLContext, juce::OpenGLShaderProgram& shaderProgram,

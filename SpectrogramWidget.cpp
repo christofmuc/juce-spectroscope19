@@ -45,6 +45,13 @@ SpectrogramWidget::SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram)
 	}
 }
 
+SpectrogramWidget::~SpectrogramWidget()
+{
+	// JUCE invokes openGLContextClosing() from detach(), so this must happen
+	// before destruction falls through to ShaderBasedComponent.
+	shutdownOpenGL();
+}
+
 void SpectrogramWidget::newOpenGLContextCreated()
 {
 	releaseOpenGLResources();

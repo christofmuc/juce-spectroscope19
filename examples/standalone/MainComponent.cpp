@@ -166,10 +166,10 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
-	spectrogram_.setContinuousRedrawing(false);
 	if (audioCallbackRegistered_)
 		deviceManager_.removeAudioCallback(this);
 	analysisWorker_.release();
+	spectrogram_.shutdownOpenGL();
 }
 
 void MainComponent::paint(juce::Graphics& graphics)

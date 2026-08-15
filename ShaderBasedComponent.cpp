@@ -20,9 +20,10 @@ ShaderBasedComponent::ShaderBasedComponent()
 
 ShaderBasedComponent::~ShaderBasedComponent()
 {
-	setContinuousRedrawing(false);
-	context_.detach();
-	context_.setRenderer(nullptr);
+	// A derived OpenGLRenderer must detach in its own destructor, while its
+	// openGLContextClosing() override can still be called safely.
+	jassert(!context_.isAttached());
+	shutdownOpenGL();
 }
 
 void ShaderBasedComponent::setContinuousRedrawing(bool run)
@@ -34,6 +35,13 @@ void ShaderBasedComponent::setContinuousRedrawing(bool run)
 bool ShaderBasedComponent::isRunning() const
 {
 	return isRunning_.load(std::memory_order_relaxed);
+}
+
+void ShaderBasedComponent::shutdownOpenGL()
+{
+	isRunning_.store(false, std::memory_order_relaxed);
+	context_.detach();
+	context_.setRenderer(nullptr);
 }
 
 juce::String ShaderBasedComponent::loadShader(juce::String const& filename)
