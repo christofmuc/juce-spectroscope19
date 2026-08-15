@@ -13,11 +13,11 @@
 namespace {
 constexpr float minimumConcertAHz = 400.0f;
 constexpr float maximumConcertAHz = 480.0f;
-constexpr float resonatorCycles = 12.0f;
+constexpr float resonatorCycles = 6.0f;
 constexpr float levelAttack = 0.35f;
 constexpr float levelRelease = 0.015f;
-constexpr float noteAttack = 0.45f;
-constexpr float noteRelease = 0.93f;
+constexpr float noteAttack = 0.65f;
+constexpr float noteRelease = 0.86f;
 constexpr float notePositionFollow = 0.35f;
 constexpr float noteMatchDistance = 2.0f;
 constexpr float noteRemovalStrength = 0.01f;
@@ -196,10 +196,12 @@ void PitchTracker::findFundamentalPeaks()
 	std::sort(sortedBins_.begin(), sortedBins_.end());
 	const auto noiseFloor = sortedBins_[static_cast<std::size_t>(analysisBinCount / 2)];
 
-	for (int bin = 1; bin < analysisBinCount - 1; ++bin) {
-		const auto left = smoothedBins_[static_cast<std::size_t>(bin - 1)];
+	for (int bin = 0; bin < analysisBinCount; ++bin) {
+		const auto left = bin > 0
+			? smoothedBins_[static_cast<std::size_t>(bin - 1)] : 0.0f;
 		const auto centre = smoothedBins_[static_cast<std::size_t>(bin)];
-		const auto right = smoothedBins_[static_cast<std::size_t>(bin + 1)];
+		const auto right = bin + 1 < analysisBinCount
+			? smoothedBins_[static_cast<std::size_t>(bin + 1)] : 0.0f;
 		if (centre <= left || centre < right)
 			continue;
 
@@ -210,7 +212,7 @@ void PitchTracker::findFundamentalPeaks()
 		const auto relativeLevel = centre / std::max(adaptiveSignalLevel_, maximumBin * 0.25f);
 		const auto coherentLevel = centre / std::max(currentInputPeak_, 0.000001f);
 		const auto strength = std::sqrt(clamp01(relativeLevel))
-			* smoothStep(0.03f, 0.25f, localProminence)
+			* smoothStep(0.01f, 0.15f, localProminence)
 			* smoothStep(0.35f, 0.90f, noiseContrast)
 			* smoothStep(0.08f, 0.35f, coherentLevel);
 		if (strength < 0.025f)
@@ -221,7 +223,8 @@ void PitchTracker::findFundamentalPeaks()
 		if (std::abs(denominator) > 0.000001f)
 			offset = std::clamp(0.5f * (left - right) / denominator, -0.5f, 0.5f);
 		candidatePeaks_[static_cast<std::size_t>(candidatePeakCount_++)] = {
-			static_cast<float>(bin) + offset, strength
+			std::clamp(static_cast<float>(bin) + offset,
+				0.0f, static_cast<float>(analysisBinCount - 1)), strength
 		};
 	}
 

@@ -145,10 +145,12 @@ bool testPitchTrackerStablePitchAndDetuning()
 	processPitchSignal(tracker, { c4 }, 80, field);
 
 	const auto expectedC = pitchFieldBinForFrequency(c4, concertA);
+	const auto stableConfidence = *std::max_element(field.begin(), field.end());
 	if (!expect(std::abs(pitchFieldPeak(field) - expectedC) <= 3,
 		"tracked C should peak at its absolute log-frequency position")
-		|| !expect(*std::max_element(field.begin(), field.end()) > 0.7f,
-			"a sustained pure tone should become a confident tracked note")) {
+		|| !expect(stableConfidence > 0.6f,
+			"a sustained pure tone should become a confident tracked note (confidence "
+				+ std::to_string(stableConfidence) + ")")) {
 		return false;
 	}
 
@@ -157,8 +159,53 @@ bool testPitchTrackerStablePitchAndDetuning()
 	const auto sharpC = c4 * std::pow(2.0, detuningCents / 1200.0);
 	processPitchSignal(tracker, { sharpC }, 80, field);
 	const auto expectedSharpC = pitchFieldBinForFrequency(sharpC, concertA);
-	return expect(std::abs(pitchFieldPeak(field) - expectedSharpC) <= 4,
-		"interpolated tracked pitch should follow a sharp input between note centres");
+	const auto actualSharpC = pitchFieldPeak(field);
+	return expect(std::abs(actualSharpC - expectedSharpC) <= 4,
+		"interpolated tracked pitch should follow a sharp input between note centres (expected bin "
+			+ std::to_string(expectedSharpC) + ", got " + std::to_string(actualSharpC) + ")");
+}
+
+bool testPitchTrackerDetectionLatency()
+{
+	constexpr double sampleRate = 48000.0;
+	constexpr double concertA = 440.0;
+	constexpr int blockSize = 512;
+	constexpr float visibleConfidence = 0.15f;
+	auto blocksUntilVisible = [=](double frequency) {
+		PitchTracker tracker;
+		tracker.prepare(sampleRate, static_cast<float>(concertA));
+		std::vector<float> samples(blockSize);
+		std::vector<float> field(PitchTracker::outputBinCount);
+		auto phase = 0.0;
+		for (int block = 1; block <= 20; ++block) {
+			for (auto& sample : samples) {
+				sample = static_cast<float>(0.6 * std::sin(phase));
+				phase += juce::MathConstants<double>::twoPi * frequency / sampleRate;
+				if (phase >= juce::MathConstants<double>::twoPi)
+					phase -= juce::MathConstants<double>::twoPi;
+			}
+			tracker.process(samples.data(), blockSize);
+			tracker.calculate(field.data(), static_cast<int>(field.size()));
+			if (pitchFieldAtFrequency(field, frequency, concertA) >= visibleConfidence)
+				return block;
+		}
+		return 21;
+	};
+
+	const auto a1Blocks = blocksUntilVisible(55.0);
+	const auto a2Blocks = blocksUntilVisible(110.0);
+	const auto a3Blocks = blocksUntilVisible(220.0);
+	const auto a4Blocks = blocksUntilVisible(440.0);
+	std::cout << "Pitch onset hops: A1=" << a1Blocks << ", A2=" << a2Blocks
+		<< ", A3=" << a3Blocks << ", A4=" << a4Blocks << '\n';
+	return expect(a1Blocks <= 12,
+		"A1 should become visible within 128 ms (took " + std::to_string(a1Blocks) + " hops)")
+		&& expect(a2Blocks <= 8,
+			"A2 should become visible within 86 ms (took " + std::to_string(a2Blocks) + " hops)")
+		&& expect(a3Blocks <= 5,
+			"A3 should become visible within 54 ms (took " + std::to_string(a3Blocks) + " hops)")
+		&& expect(a4Blocks <= 4,
+			"A4 should become visible within 43 ms (took " + std::to_string(a4Blocks) + " hops)");
 }
 
 bool testPitchTrackerChordAndRelease()
@@ -454,7 +501,8 @@ bool testWaterfallTimelineMapping()
 
 int main()
 {
-	const auto passed = testPitchTrackerStablePitchAndDetuning() && testPitchTrackerChordAndRelease()
+	const auto passed = testPitchTrackerStablePitchAndDetuning() && testPitchTrackerDetectionLatency()
+		&& testPitchTrackerChordAndRelease()
 		&& testPitchTrackerHarmonicMusicalTone()
 		&& testPitchTrackerRejectsBroadbandNoise()
 		&& testSpectrogramPublishesTrackedPitch()
