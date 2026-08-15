@@ -4,15 +4,76 @@
 #  Dual licensed: Distributed under Affero GPL license by default, an MIT license is available for purchase
 #
 
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.22)
 
-project(juce-spectroscope19 LANGUAGES CXX)
+project(juce-spectroscope19 VERSION 1.0.0 LANGUAGES C CXX)
+
+include(CTest)
+
+set(JUCE_SPECTROSCOPE_IS_TOP_LEVEL OFF)
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+	set(JUCE_SPECTROSCOPE_IS_TOP_LEVEL ON)
+endif()
 
 option(JUCE_SPECTROSCOPE_VALIDATE_SHADERS "Validate shaders with an installed glslangValidator" OFF)
-option(JUCE_SPECTROSCOPE_BUILD_TESTS "Build the headless analyzer tests" OFF)
+option(JUCE_SPECTROSCOPE_BUILD_TESTS "Build the headless analyzer tests" ${JUCE_SPECTROSCOPE_IS_TOP_LEVEL})
+option(JUCE_SPECTROSCOPE_BUILD_DEMO "Build the standalone microphone-input demo" ${JUCE_SPECTROSCOPE_IS_TOP_LEVEL})
+option(JUCE_SPECTROSCOPE_FETCH_JUCE "Fetch the pinned JUCE dependency for standalone builds" ${JUCE_SPECTROSCOPE_IS_TOP_LEVEL})
 
 if(NOT TARGET juce-static)
-	message(FATAL_ERROR "juce-spectroscope19 expects the parent project to provide the juce-static target")
+	if(NOT TARGET juce::juce_core AND JUCE_SPECTROSCOPE_FETCH_JUCE)
+		include(FetchContent)
+		set(JUCE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+		set(JUCE_BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
+		FetchContent_Declare(
+			JUCE
+			URL https://github.com/juce-framework/JUCE/archive/f8f8864172464b9adf9eba6101e1f784838d1597.tar.gz
+			URL_HASH SHA256=0bef95e4d4e6e8e1aaa98dfa9aae7529235152e140a7710525bc38b03f8c93a9
+			DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+		)
+		FetchContent_MakeAvailable(JUCE)
+	endif()
+
+	if(NOT TARGET juce::juce_core)
+		message(FATAL_ERROR
+			"juce-spectroscope19 needs either a parent-provided juce-static target, "
+			"JUCE CMake targets, or JUCE_SPECTROSCOPE_FETCH_JUCE=ON")
+	endif()
+
+	# Match the umbrella target supplied by JammerNetz. Keeping this target local
+	# means consumers never download or compile a second JUCE checkout.
+	add_library(juce-static STATIC)
+	target_link_libraries(juce-static
+		PRIVATE
+			juce::juce_audio_basics
+			juce::juce_audio_devices
+			juce::juce_audio_utils
+			juce::juce_core
+			juce::juce_data_structures
+			juce::juce_dsp
+			juce::juce_events
+			juce::juce_graphics
+			juce::juce_gui_basics
+			juce::juce_opengl
+		PUBLIC
+			juce::juce_recommended_config_flags
+			juce::juce_recommended_warning_flags
+	)
+	target_compile_definitions(juce-static
+		PUBLIC
+			DONT_SET_USING_JUCE_NAMESPACE=1
+			JUCE_CATCH_UNHANDLED_EXCEPTIONS=0
+			JUCE_CHECK_MEMORY_LEAKS=0
+			JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+			JUCE_JACK=0
+			JUCE_REPORT_APP_USAGE=0
+			JUCE_USE_CURL=0
+			JUCE_WEB_BROWSER=0
+	)
+	target_include_directories(juce-static
+		INTERFACE $<TARGET_PROPERTY:juce-static,INCLUDE_DIRECTORIES>
+	)
+	set_target_properties(juce-static PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 endif()
 
 set(SHADER_FILES
@@ -84,6 +145,13 @@ if(JUCE_SPECTROSCOPE_BUILD_TESTS)
 	target_link_libraries(juce-spectroscope-analysis-tests PRIVATE juce-spectroscope-analysis)
 	target_compile_features(juce-spectroscope-analysis-tests PRIVATE cxx_std_17)
 	add_test(NAME juce-spectroscope-analysis-tests COMMAND juce-spectroscope-analysis-tests)
+endif()
+
+if(JUCE_SPECTROSCOPE_BUILD_DEMO)
+	if(NOT COMMAND juce_add_gui_app)
+		message(FATAL_ERROR "The standalone demo requires JUCE's juce_add_gui_app CMake function")
+	endif()
+	add_subdirectory(examples/standalone)
 endif()
 
 foreach(TARGET_NAME IN ITEMS juce-spectroscope-analysis juce-spectroscope-ui)

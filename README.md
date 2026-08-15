@@ -4,7 +4,7 @@ This is a pretty OpenGL spectroscope for the awesome [JUCE](https://github.com/W
 
 ## Usage
 
-This repository is meant to be included as a git submodule in a main project, see for instance [JammerNetz](https://github.com/christofmuc/JammerNetz) for an example how this is used. The parent project must provide a `juce-static` target with JUCE audio basics, core, DSP, GUI basics, graphics, and OpenGL support.
+This repository can be built directly or included as a git submodule in a parent project such as [JammerNetz](https://github.com/christofmuc/JammerNetz). A parent build may provide its own `juce-static` target; in that mode this project neither fetches nor compiles a second JUCE checkout.
 
 The CMake build exposes three targets:
 
@@ -14,11 +14,23 @@ The CMake build exposes three targets:
 
 Shader validation is optional. Enable `JUCE_SPECTROSCOPE_VALIDATE_SHADERS` to use an installed `glslangValidator`; configuration never downloads a moving tool archive.
 
+## Standalone build and demo
+
+Top-level builds fetch the pinned JUCE revision used by JammerNetz and enable both the analyzer tests and microphone-input demo by default:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
+
+The `JuceSpectroscopeDemo` executable displays the selected audio input without doing FFT or OpenGL work on the audio callback. Use `JUCE_SPECTROSCOPE_BUILD_DEMO`, `JUCE_SPECTROSCOPE_BUILD_TESTS`, and `JUCE_SPECTROSCOPE_FETCH_JUCE` to control standalone configuration explicitly.
+
+The former [juce-spectroscope19-ci](https://github.com/christofmuc/juce-spectroscope19-ci) super-project is retained only as historical reference. Its demo and AppVeyor responsibilities now live here.
+
 ## Example
 
-In order to build this library standalone and get a working example program, there is a [separate little repository called juce-spectroscope19-ci](https://github.com/christofmuc/juce-spectroscope19-ci) that you can use. This also documents the build process.
-
-Here is a screenshot of the program in the example repo action rendering a youtube video of a performance of [Pergolesi's Stabat mater](https://www.youtube.com/watch?v=FjJ02agjjdo):
+Here is a screenshot from the original demo rendering a YouTube performance of [Pergolesi's Stabat mater](https://www.youtube.com/watch?v=FjJ02agjjdo):
 
 ![A picture of the rendering of the spectrogram](Screenshot.png)
 
@@ -26,7 +38,7 @@ Here is a screenshot of the program in the example repo action rendering a youtu
 
 Please understand that this software uses the following third party libraries, and you are implicitly accepting their license terms as well when using this software. Please visit the links and familarize yourself with their conditions. 
 
-For the sake of easy accessibility, the cmake build of this example software automatically downloads and uses the following components:
+For the sake of easy accessibility, a standalone CMake build downloads and uses the following components:
 
   1. The awesome [JUCE](https://juce.com/) library for cross-platform C++ development.
   2. CMake for integrating the analyzer and UI targets into a parent project.
