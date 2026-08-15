@@ -60,7 +60,9 @@ void OpenGLFloatTexture::create(const int w, const int h, const GLfloat * pixels
 		juce::gl::glTexParameteriv(juce::gl::GL_TEXTURE_2D, juce::gl::GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
 		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
 		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-		juce::gl::glTexParameteri(juce::gl::GL_TEXTURE_2D, juce::gl::GL_TEXTURE_WRAP_S, juce::gl::GL_REPEAT);
+		// Frequency must not wrap between Nyquist and DC. Only the time/history
+		// dimension is circular.
+		juce::gl::glTexParameteri(juce::gl::GL_TEXTURE_2D, juce::gl::GL_TEXTURE_WRAP_S, juce::gl::GL_CLAMP_TO_EDGE);
 		juce::gl::glTexParameteri(juce::gl::GL_TEXTURE_2D, juce::gl::GL_TEXTURE_WRAP_T, juce::gl::GL_REPEAT);
 		JUCE_CHECK_OPENGL_ERROR
 	}

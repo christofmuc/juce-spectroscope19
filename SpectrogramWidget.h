@@ -55,7 +55,8 @@ private:
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> audioSampleData_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> lutTexture_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> waterfallTexture_;
-	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> waterfallUniform_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> waterfallStartUniform_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> waterfallSpanUniform_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> logXAxis_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uUpperHalfPercentage_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uHorizontal_;
@@ -63,6 +64,7 @@ private:
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uSampleRate_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uConcertAHz_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uMinimumFrequencyHz_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> uSpectrumTexelWidth_;
 
 	std::vector<GLfloat> fftData_;
 	std::vector<GLfloat> pendingSpectra_;

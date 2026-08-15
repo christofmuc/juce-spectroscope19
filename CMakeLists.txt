@@ -120,6 +120,7 @@ add_library(juce-spectroscope-ui STATIC
 	ShaderBasedComponent.h
 	SpectrogramWidget.cpp
 	SpectrogramWidget.h
+	WaterfallTimeline.h
 	${SHADER_FILES}
 )
 target_include_directories(juce-spectroscope-ui

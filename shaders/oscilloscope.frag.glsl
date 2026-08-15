@@ -11,11 +11,13 @@ uniform int xAxisLog;
 uniform int horizontalMode;
 uniform int pitchColourMode;
 
-uniform float waterfallPosition;
+uniform float waterfallStartPosition;
+uniform float waterfallHistorySpan;
 uniform float upperHalfPercentage;
 uniform float sampleRate;
 uniform float concertAHz;
 uniform float minimumFrequencyHz;
+uniform float spectrumTexelWidth;
 uniform sampler2D audioSampleData;
 uniform sampler2D lutTexture; 
 uniform sampler2D waterfall; 
@@ -41,10 +43,20 @@ vec3 hsvToRgb(vec3 hsv) {
 	return hsv.z * mix(vec3(1.0f), rgb, hsv.y);
 }
 
-vec4 spectrumColour(float decibels, float frequencyPosition) {
-	float intensity = clamp(1.0f + decibels / 100.0f, 0.0f, 1.0f);
+float spectralSalience(sampler2D sourceTexture, vec2 texturePosition) {
+	float offset = max(spectrumTexelWidth, 0.000001f);
+	float centre = texture(sourceTexture, texturePosition).r;
+	float lower = texture(sourceTexture, vec2(max(texturePosition.x - offset, 0.0f), texturePosition.y)).r;
+	float upper = texture(sourceTexture, vec2(min(texturePosition.x + offset, 1.0f), texturePosition.y)).r;
+	float prominenceDb = centre - max(lower, upper);
+	return smoothstep(0.0f, 6.0f, prominenceDb);
+}
+
+vec4 spectrumColour(float decibels, float frequencyPosition, float salience) {
+	float linearIntensity = clamp(1.0f + decibels / 100.0f, 0.0f, 1.0f);
+	float intensity = pow(linearIntensity, 1.7f);
 	if (pitchColourMode == 0)
-		return texture(lutTexture, vec2(intensity, 0.0f));
+		return texture(lutTexture, vec2(linearIntensity, 0.0f));
 
 	float frequency = frequencyPosition * sampleRate * 0.5f;
 	if (frequency <= 0.0f || concertAHz <= 0.0f)
@@ -62,7 +74,9 @@ vec4 spectrumColour(float decibels, float frequencyPosition) {
 
 	// Colour falls continuously from a tempered note centre to neutral grey at
 	// the midpoint between notes. The peak position shows whether it is flat or sharp.
-	float saturation = clamp(1.0f - centsFromNote / 50.0f, 0.0f, 1.0f);
+	float tuningSaturation = clamp(1.0f - centsFromNote / 50.0f, 0.0f, 1.0f);
+	float amplitudeConfidence = smoothstep(0.15f, 0.55f, linearIntensity);
+	float saturation = tuningSaturation * salience * amplitudeConfidence;
 	return vec4(hsvToRgb(vec3(hue, saturation, intensity)), 1.0f);
 }
 
@@ -74,27 +88,33 @@ void main()
 		// Horizontal Mode
 		float x = gl_FragCoord.x / resolution.x;
 		float frequency = frequencyPosition(y);
-		float value = texture(waterfall, vec2(frequency, (x + waterfallPosition))).r;
-		fragmentColour = spectrumColour(value, frequency);
+		float historyPosition = waterfallStartPosition + x * waterfallHistorySpan;
+		vec2 texturePosition = vec2(frequency, historyPosition);
+		float value = texture(waterfall, texturePosition).r;
+		fragmentColour = spectrumColour(value, frequency, spectralSalience(waterfall, texturePosition));
 	} else {
 		// Vertical Mode
 		float x = frequencyPosition(gl_FragCoord.x / resolution.x);
 
-		float amplitude = texture(audioSampleData, vec2(x, 0.0)).r;
+		vec2 spectrumPosition = vec2(x, 0.0f);
+		float amplitude = texture(audioSampleData, spectrumPosition).r;
 		float amplitudeNormalised = clamp(1.0f + amplitude / 100.0f, 0.0f, 1.0f);
 		if (y > upperHalfPercentage) {
 			// upper half of screen shows curve
 			if ((y-upperHalfPercentage)/(1-upperHalfPercentage) < amplitudeNormalised)  {
-				fragmentColour = spectrumColour(amplitude, x);
+				fragmentColour = spectrumColour(
+					amplitude, x, spectralSalience(audioSampleData, spectrumPosition));
 			}
 			else {
 				fragmentColour = vec4 (0.0, 0.0, 0.0, 1.0);
 			}
 		} else {
 			// lower half shows history
-			//float value = texture(waterfall, vec2(x, waterfallPosition)).r;
-			float value = texture(waterfall, vec2(x, (waterfallPosition - (1-y/upperHalfPercentage)))).r;
-			fragmentColour = spectrumColour(value, x);
+			float historyProgress = y / upperHalfPercentage;
+			float historyPosition = waterfallStartPosition + historyProgress * waterfallHistorySpan;
+			vec2 texturePosition = vec2(x, historyPosition);
+			float value = texture(waterfall, texturePosition).r;
+			fragmentColour = spectrumColour(value, x, spectralSalience(waterfall, texturePosition));
 		}
 	}
 }

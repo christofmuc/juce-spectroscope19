@@ -66,7 +66,7 @@ ctest --test-dir build --output-on-failure
 - **Pitch colours** colours each tempered pitch class by its position on the circle of fifths. Colour saturation falls continuously from a note centre to neutral grey at the midpoint between neighbouring notes.
 - **A4 reference** sets the tuning reference from 415 Hz to 466 Hz. For example, set it to 444 Hz when analysing an ensemble tuned to A4 = 444 Hz.
 
-Pitch colouring affects only rendering; the analyzer continues to publish the same FFT spectrum. This makes the coloured and traditional palettes directly comparable and keeps tuning policy out of the real-time analysis path.
+Pitch colouring affects only rendering; the analyzer continues to publish the same FFT spectrum. Colour is concentrated on local spectral peaks, while broadband and non-peak energy remains neutral and darker. This prevents the fixed pitch-class palette from overpowering temporal detail. The coloured and traditional palettes remain directly comparable, and tuning policy stays out of the real-time analysis path.
 
 The status area reports microphone permission or audio-device initialization errors. If no input device is available, the window and renderer remain usable rather than terminating the application.
 

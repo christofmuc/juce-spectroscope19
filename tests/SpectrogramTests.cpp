@@ -1,4 +1,5 @@
 #include "Spectrogram.h"
+#include "WaterfallTimeline.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,6 +14,11 @@ bool expect(bool condition, const std::string& message)
 	if (!condition)
 		std::cerr << "FAILED: " << message << '\n';
 	return condition;
+}
+
+bool approximatelyEqual(float left, float right)
+{
+	return std::abs(left - right) < 0.00001f;
 }
 
 void fillBinCentredSine(juce::AudioBuffer<float>& buffer, int fftSize, int bin)
@@ -160,12 +166,46 @@ bool testSpectrumFrameHistoryOrderAndWraparound()
 			copiedThrough, frames.data(), static_cast<int>(frames.size())) == 0,
 			"already consumed spectrum frames should not be copied again");
 }
+
+bool testWaterfallTimelineMapping()
+{
+	constexpr int rowCount = 8;
+	constexpr int newestRow = 2;
+	constexpr int expectedRows[] { 3, 4, 5, 6, 7, 0, 1, 2 };
+
+	if (!expect(spectroscope::waterfall::nextRow(6, rowCount) == 7,
+		"waterfall row should advance without wrapping early")
+		|| !expect(spectroscope::waterfall::nextRow(7, rowCount) == 0,
+			"waterfall row should wrap after the last row")
+		|| !expect(approximatelyEqual(
+			spectroscope::waterfall::oldestRowCentre(newestRow, rowCount), 3.5f / 8.0f),
+			"history should start at the centre of the row after the newest row")
+		|| !expect(approximatelyEqual(
+			spectroscope::waterfall::historySpan(rowCount), 7.0f / 8.0f),
+			"history should span each row exactly once")) {
+		return false;
+	}
+
+	for (int displayColumn = 0; displayColumn < rowCount; ++displayColumn) {
+		const auto progress = static_cast<float>(displayColumn) / static_cast<float>(rowCount - 1);
+		const auto coordinate = spectroscope::waterfall::textureCoordinate(
+			progress, newestRow, rowCount);
+		const auto wrappedCoordinate = coordinate - std::floor(coordinate);
+		const auto sampledRow = static_cast<int>(std::floor(wrappedCoordinate * rowCount));
+		if (!expect(sampledRow == expectedRows[displayColumn],
+			"horizontal history should visit oldest-to-newest rows in chronological order")) {
+			return false;
+		}
+	}
+
+	return true;
+}
 }
 
 int main()
 {
 	const auto passed = testSilence() && testBinCentredSine() && testResetAndOverflow()
-		&& testSpectrumFrameHistoryOrderAndWraparound();
+		&& testSpectrumFrameHistoryOrderAndWraparound() && testWaterfallTimelineMapping();
 	if (passed)
 		std::cout << "All spectrogram analyzer tests passed\n";
 	return passed ? EXIT_SUCCESS : EXIT_FAILURE;

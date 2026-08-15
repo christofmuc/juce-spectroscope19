@@ -8,6 +8,7 @@
 
 #include "BinaryResources.h"
 #include "OpenGLHelpers.h"
+#include "WaterfallTimeline.h"
 
 #include <algorithm>
 
@@ -69,7 +70,8 @@ void SpectrogramWidget::newOpenGLContextCreated()
 	shader_->use();
 	position_ = std::make_unique<OpenGLShaderProgram::Attribute>(*shader_, "position");
 	resolution_ = createUniform(context_, *shader_, "resolution");
-	waterfallUniform_ = createUniform(context_, *shader_, "waterfallPosition");
+	waterfallStartUniform_ = createUniform(context_, *shader_, "waterfallStartPosition");
+	waterfallSpanUniform_ = createUniform(context_, *shader_, "waterfallHistorySpan");
 	uUpperHalfPercentage_ = createUniform(context_, *shader_, "upperHalfPercentage");
 	audioSampleData_ = createUniform(context_, *shader_, "audioSampleData");
 	waterfallTexture_ = createUniform(context_, *shader_, "waterfall");
@@ -80,16 +82,18 @@ void SpectrogramWidget::newOpenGLContextCreated()
 	uSampleRate_ = createUniform(context_, *shader_, "sampleRate");
 	uConcertAHz_ = createUniform(context_, *shader_, "concertAHz");
 	uMinimumFrequencyHz_ = createUniform(context_, *shader_, "minimumFrequencyHz");
+	uSpectrumTexelWidth_ = createUniform(context_, *shader_, "spectrumTexelWidth");
 
 	const auto analyzer = spectrogram_.lock();
 	const auto invalidAttribute = position_ == nullptr
 		|| position_->attributeID == static_cast<GLuint>(-1);
-	const auto missingUniform = resolution_ == nullptr || waterfallUniform_ == nullptr
+	const auto missingUniform = resolution_ == nullptr || waterfallStartUniform_ == nullptr
+		|| waterfallSpanUniform_ == nullptr
 		|| uUpperHalfPercentage_ == nullptr || audioSampleData_ == nullptr
 		|| waterfallTexture_ == nullptr || lutTexture_ == nullptr
 		|| logXAxis_ == nullptr || uHorizontal_ == nullptr
 		|| uPitchColourMode_ == nullptr || uSampleRate_ == nullptr || uConcertAHz_ == nullptr
-		|| uMinimumFrequencyHz_ == nullptr;
+		|| uMinimumFrequencyHz_ == nullptr || uSpectrumTexelWidth_ == nullptr;
 	if (analyzer == nullptr || invalidAttribute || missingUniform) {
 		publishStatus(analyzer == nullptr ? "Spectrum analyzer unavailable"
 			: "Spectrogram shader interface is incomplete");
@@ -165,7 +169,9 @@ void SpectrogramWidget::renderOpenGL()
 	setUniform(logXAxis_, xLogAxis_.load(std::memory_order_relaxed) ? 1 : 0);
 	setUniform(uHorizontal_, horizontal_.load(std::memory_order_relaxed) ? 1 : 0);
 	setUniform(uPitchColourMode_, pitchColourMode_.load(std::memory_order_relaxed) ? 1 : 0);
-	setUniform(waterfallUniform_, static_cast<float>(waterfallPosition_) / static_cast<float>(waterfallRows));
+	setUniform(waterfallStartUniform_,
+		spectroscope::waterfall::oldestRowCentre(waterfallPosition_, waterfallRows));
+	setUniform(waterfallSpanUniform_, spectroscope::waterfall::historySpan(waterfallRows));
 	setUniform(uUpperHalfPercentage_, upperHalfPercentage_);
 	setUniform(audioSampleData_, 1);
 	setUniform(waterfallTexture_, 2);
@@ -174,9 +180,11 @@ void SpectrogramWidget::renderOpenGL()
 		setUniform(uSampleRate_, static_cast<float>(analyzer->sampleRate()));
 		setUniform(uMinimumFrequencyHz_, static_cast<float>(
 			analyzer->sampleRate() / static_cast<double>(analyzer->fftSize())));
+		setUniform(uSpectrumTexelWidth_, 1.0f / static_cast<float>(analyzer->spectrumSize()));
 	} else {
 		setUniform(uSampleRate_, 0.0f);
 		setUniform(uMinimumFrequencyHz_, 1.0f);
+		setUniform(uSpectrumTexelWidth_, 1.0f);
 	}
 
 	if (const auto analyzer = spectrogram_.lock()) {
@@ -311,7 +319,8 @@ void SpectrogramWidget::releaseOpenGLResources()
 	audioSampleData_.reset();
 	lutTexture_.reset();
 	waterfallTexture_.reset();
-	waterfallUniform_.reset();
+	waterfallStartUniform_.reset();
+	waterfallSpanUniform_.reset();
 	logXAxis_.reset();
 	uUpperHalfPercentage_.reset();
 	uHorizontal_.reset();
@@ -319,6 +328,7 @@ void SpectrogramWidget::releaseOpenGLResources()
 	uSampleRate_.reset();
 	uConcertAHz_.reset();
 	uMinimumFrequencyHz_.reset();
+	uSpectrumTexelWidth_.reset();
 	shader_.reset();
 }
 
@@ -341,7 +351,7 @@ int SpectrogramWidget::pullAvailableSpectra()
 		return 0;
 
 	for (int pendingRow = 0; pendingRow < copiedRows; ++pendingRow) {
-		waterfallPosition_ = (waterfallPosition_ + 1) % waterfallRows;
+		waterfallPosition_ = spectroscope::waterfall::nextRow(waterfallPosition_, waterfallRows);
 		pendingTextureRows_[static_cast<size_t>(pendingRow)] = waterfallPosition_;
 		const auto sourceOffset = static_cast<size_t>(pendingRow * analyzer->spectrumSize());
 		const auto destinationOffset = static_cast<size_t>(waterfallPosition_ * analyzer->spectrumSize());
