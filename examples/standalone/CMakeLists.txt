@@ -15,7 +15,7 @@ target_sources(JuceSpectroscopeDemo PRIVATE
 target_link_libraries(JuceSpectroscopeDemo PRIVATE juce-spectroscope19)
 target_compile_features(JuceSpectroscopeDemo PRIVATE cxx_std_17)
 
-if(WIN32 AND BUILD_TESTING)
+if(WIN32 AND BUILD_TESTING AND JUCE_SPECTROSCOPE_BUILD_GUI_TESTS)
 	add_test(NAME juce-spectroscope-demo-exit
 		COMMAND JuceSpectroscopeDemo --exit-smoke-test)
 	set_tests_properties(juce-spectroscope-demo-exit PROPERTIES TIMEOUT 15)

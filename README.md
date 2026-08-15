@@ -53,6 +53,7 @@ See [Integrating JUCE Spectroscope](docs/integration.md) for target selection, o
 | --- | ---: | --- |
 | `JUCE_SPECTROSCOPE_BUILD_DEMO` | `ON` | Build the standalone demo. |
 | `JUCE_SPECTROSCOPE_BUILD_TESTS` | `ON` | Build and register analyzer tests. |
+| `JUCE_SPECTROSCOPE_BUILD_GUI_TESTS` | `OFF` | Register lifecycle tests that require an interactive Windows desktop and OpenGL driver. |
 | `JUCE_SPECTROSCOPE_FETCH_JUCE` | `ON` | Fetch pinned JUCE when no parent JUCE target exists. |
 | `JUCE_SPECTROSCOPE_VALIDATE_SHADERS` | `OFF` | Validate shaders with an installed `glslangValidator`. |
 

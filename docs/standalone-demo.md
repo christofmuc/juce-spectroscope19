@@ -2,7 +2,7 @@
 
 `JuceSpectroscopeDemo` is a small desktop application that displays the selected microphone or audio-interface input. It replaces the demo formerly maintained in the archived `juce-spectroscope19-ci` repository.
 
-The application is also an integration test: it compiles the public analyzer and UI targets, creates a real OpenGL component, exercises JUCE audio-device APIs, and links a runnable application bundle on every supported desktop platform.
+The application is also a build integration test: it compiles the public analyzer and UI targets, exercises JUCE audio-device APIs, and links a runnable application bundle on every supported desktop platform. An optional Windows lifecycle test additionally creates a real OpenGL component and verifies clean shutdown on an interactive desktop.
 
 ## Requirements
 
@@ -22,6 +22,14 @@ cmake -S . -B build -A x64
 cmake --build build --config RelWithDebInfo --parallel
 ctest --test-dir build -C RelWithDebInfo --output-on-failure
 ```
+
+To register the real-window OpenGL exit test, configure the same build with:
+
+```powershell
+cmake -S . -B build -DJUCE_SPECTROSCOPE_BUILD_GUI_TESTS=ON
+```
+
+This test requires an interactive Windows desktop and working OpenGL driver. It is intentionally not enabled on headless or virtualized CI runners.
 
 Using an unconfigured MinGW shell is not supported by JUCE. The GitHub Actions workflow deliberately uses Visual Studio on Windows.
 
@@ -98,4 +106,4 @@ To use an existing JUCE checkout or installed JUCE package, make its `juce::` CM
 
 ## Continuous integration
 
-The repository's `Build and test` workflow performs a RelWithDebInfo build and runs analyzer tests on Windows, Ubuntu, and macOS. The module uses JUCE's recommended warning flags and treats warnings in project sources as errors, so platform-specific compilation failures are caught without building JammerNetz.
+The repository's `Build and test` workflow performs a RelWithDebInfo build of the library and standalone demo, and runs headless analyzer tests on Windows, Ubuntu, and macOS. The module uses JUCE's recommended warning flags and treats warnings in project sources as errors, so platform-specific compilation failures are caught without building JammerNetz. The real-window OpenGL exit test remains opt-in because hosted Windows runners do not provide a dependable interactive OpenGL session.

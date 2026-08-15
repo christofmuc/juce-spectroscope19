@@ -18,6 +18,8 @@ endif()
 option(JUCE_SPECTROSCOPE_VALIDATE_SHADERS "Validate shaders with an installed glslangValidator" OFF)
 option(JUCE_SPECTROSCOPE_BUILD_TESTS "Build the headless analyzer tests" ${JUCE_SPECTROSCOPE_IS_TOP_LEVEL})
 option(JUCE_SPECTROSCOPE_BUILD_DEMO "Build the standalone microphone-input demo" ${JUCE_SPECTROSCOPE_IS_TOP_LEVEL})
+option(JUCE_SPECTROSCOPE_BUILD_GUI_TESTS
+	"Register tests that require an interactive desktop and working OpenGL driver" OFF)
 option(JUCE_SPECTROSCOPE_FETCH_JUCE "Fetch the pinned JUCE dependency for standalone builds" ${JUCE_SPECTROSCOPE_IS_TOP_LEVEL})
 
 # Keep standalone MSVC builds runnable without the Visual C++ debug runtime DLLs.
