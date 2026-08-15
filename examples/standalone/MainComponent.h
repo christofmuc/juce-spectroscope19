@@ -43,7 +43,7 @@ private:
 class MainComponent final : public juce::Component,
 	private juce::AudioIODeviceCallback {
 public:
-	MainComponent();
+	explicit MainComponent(bool startAudio = true);
 	~MainComponent() override;
 
 	void paint(juce::Graphics& graphics) override;

@@ -97,7 +97,7 @@ void DemoAnalysisWorker::process(Frame& frame)
 	analyzer_->process({ &buffer, 0, frame.numSamples });
 }
 
-MainComponent::MainComponent()
+MainComponent::MainComponent(bool startAudio)
 	: analyzer_(std::make_shared<Spectrogram>())
 	, analysisWorker_(analyzer_)
 	, spectrogram_(analyzer_)
@@ -147,7 +147,9 @@ MainComponent::MainComponent()
 	// waterfall follows the display refresh instead of a fixed message timer.
 	spectrogram_.setContinuousRedrawing(true);
 
-	if (juce::RuntimePermissions::isRequired(juce::RuntimePermissions::recordAudio)
+	if (!startAudio) {
+		statusLabel_.setText("Audio disabled for exit smoke test", juce::dontSendNotification);
+	} else if (juce::RuntimePermissions::isRequired(juce::RuntimePermissions::recordAudio)
 		&& !juce::RuntimePermissions::isGranted(juce::RuntimePermissions::recordAudio)) {
 		juce::Component::SafePointer<MainComponent> safeThis(this);
 		juce::RuntimePermissions::request(juce::RuntimePermissions::recordAudio,

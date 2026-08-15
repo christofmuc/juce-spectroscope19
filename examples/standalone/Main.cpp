@@ -17,8 +17,9 @@ public:
 
 	void initialise(const juce::String& commandLine) override
 	{
-		mainWindow_ = std::make_unique<MainWindow>(getApplicationName());
-		if (commandLine.contains("--exit-smoke-test"))
+		const auto exitSmokeTest = commandLine.contains("--exit-smoke-test");
+		mainWindow_ = std::make_unique<MainWindow>(getApplicationName(), !exitSmokeTest);
+		if (exitSmokeTest)
 			startTimer(1000);
 	}
 
@@ -43,14 +44,14 @@ private:
 
 	class MainWindow final : public juce::DocumentWindow {
 	public:
-		explicit MainWindow(const juce::String& name)
+		MainWindow(const juce::String& name, bool startAudio)
 			: DocumentWindow(name,
 				juce::Desktop::getInstance().getDefaultLookAndFeel()
 					.findColour(juce::ResizableWindow::backgroundColourId),
 				juce::DocumentWindow::allButtons)
 		{
 			setUsingNativeTitleBar(true);
-			setContentOwned(new MainComponent(), true);
+			setContentOwned(new MainComponent(startAudio), true);
 			setResizable(true, true);
 			centreWithSize(900, 650);
 			setVisible(true);
