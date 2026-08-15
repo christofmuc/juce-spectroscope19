@@ -17,6 +17,16 @@ using namespace juce::gl;
 namespace {
 constexpr int waterfallRows = 512;
 constexpr int maximumRowsPerRefresh = 32;
+
+#if JUCE_DEBUG
+void assertTextureBound(OpenGLContext& context, GLenum textureUnit, GLuint expectedTexture)
+{
+	context.extensions.glActiveTexture(textureUnit);
+	GLint actualTexture = 0;
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &actualTexture);
+	jassert(static_cast<GLuint>(actualTexture) == expectedTexture);
+}
+#endif
 }
 
 SpectrogramWidget::SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram)
@@ -169,6 +179,25 @@ void SpectrogramWidget::renderOpenGL()
 		setUniform(uMinimumFrequencyHz_, 1.0f);
 	}
 
+	if (const auto analyzer = spectrogram_.lock()) {
+		if (spectraUpdated > 0) {
+			const auto latestRowOffset = static_cast<size_t>(waterfallPosition_ * analyzer->spectrumSize());
+			context_.extensions.glActiveTexture(GL_TEXTURE1);
+			spectrumData_->load(fftData_.data() + latestRowOffset, analyzer->spectrumSize(), 1);
+
+			context_.extensions.glActiveTexture(GL_TEXTURE2);
+			for (int pendingRow = 0; pendingRow < spectraUpdated; ++pendingRow) {
+				const auto textureRow = pendingTextureRows_[static_cast<size_t>(pendingRow)];
+				const auto rowOffset = static_cast<size_t>(textureRow * analyzer->spectrumSize());
+				const auto* rowData = fftData_.data() + rowOffset;
+				spectrumHistory_->load(rowData, analyzer->spectrumSize(), 1, textureRow);
+			}
+		}
+	}
+
+	// Texture uploads bind on the currently active unit. Re-establish every
+	// sampler binding after uploads so the one-row spectrum can never replace
+	// the waterfall texture on unit 2.
 	context_.extensions.glActiveTexture(GL_TEXTURE0);
 	textureLUT_->bind();
 	context_.extensions.glActiveTexture(GL_TEXTURE1);
@@ -176,19 +205,11 @@ void SpectrogramWidget::renderOpenGL()
 	context_.extensions.glActiveTexture(GL_TEXTURE2);
 	spectrumHistory_->bind();
 
-	if (const auto analyzer = spectrogram_.lock()) {
-		if (spectraUpdated > 0) {
-			for (int pendingRow = 0; pendingRow < spectraUpdated; ++pendingRow) {
-				const auto textureRow = pendingTextureRows_[static_cast<size_t>(pendingRow)];
-				const auto rowOffset = static_cast<size_t>(textureRow * analyzer->spectrumSize());
-				const auto* rowData = fftData_.data() + rowOffset;
-				spectrumHistory_->load(rowData, analyzer->spectrumSize(), 1, textureRow);
-			}
-
-			const auto latestRowOffset = static_cast<size_t>(waterfallPosition_ * analyzer->spectrumSize());
-			spectrumData_->load(fftData_.data() + latestRowOffset, analyzer->spectrumSize(), 1);
-		}
-	}
+#if JUCE_DEBUG
+	assertTextureBound(context_, GL_TEXTURE0, textureLUT_->getTextureID());
+	assertTextureBound(context_, GL_TEXTURE1, spectrumData_->getTextureID());
+	assertTextureBound(context_, GL_TEXTURE2, spectrumHistory_->getTextureID());
+#endif
 
 	const GLfloat vertices[] = {
 		1.0f, 1.0f, 0.0f,
@@ -210,8 +231,11 @@ void SpectrogramWidget::renderOpenGL()
 	context_.extensions.glBindBuffer(GL_ARRAY_BUFFER, 0);
 	context_.extensions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
+	context_.extensions.glActiveTexture(GL_TEXTURE0);
 	textureLUT_->unbind();
+	context_.extensions.glActiveTexture(GL_TEXTURE1);
 	spectrumData_->unbind();
+	context_.extensions.glActiveTexture(GL_TEXTURE2);
 	spectrumHistory_->unbind();
 }
 
