@@ -1,57 +1,83 @@
-# Introduction
+[![Build and test](https://github.com/christofmuc/juce-spectroscope19/actions/workflows/build.yml/badge.svg)](https://github.com/christofmuc/juce-spectroscope19/actions/workflows/build.yml)
 
-This is a pretty OpenGL spectroscope for the awesome [JUCE](https://github.com/WeAreROLI/JUCE) cross platform C++ programming framework.
+# JUCE Spectroscope
 
-## Usage
+JUCE Spectroscope is a reusable spectrum analyzer and OpenGL waterfall display for the [JUCE](https://github.com/juce-framework/JUCE) cross-platform C++ framework.
 
-This repository can be built directly or included as a git submodule in a parent project such as [JammerNetz](https://github.com/christofmuc/JammerNetz). A parent build may provide its own `juce-static` target; in that mode this project neither fetches nor compiles a second JUCE checkout.
+![The spectrogram rendering a performance of Pergolesi's Stabat mater](Screenshot.png)
 
-The CMake build exposes three targets:
+The repository supports two use cases:
 
-- `juce-spectroscope-analysis`: headless FFT analysis;
-- `juce-spectroscope-ui`: OpenGL visualization;
-- `juce-spectroscope19`: compatibility target linking both.
+- a standalone microphone-input demo that builds the library, UI, and tests together;
+- a CMake subdirectory or git submodule consumed by applications such as [JammerNetz](https://github.com/christofmuc/JammerNetz).
 
-Shader validation is optional. Enable `JUCE_SPECTROSCOPE_VALIDATE_SHADERS` to use an installed `glslangValidator`; configuration never downloads a moving tool archive.
+## CMake targets
 
-## Standalone build and demo
+| Target | Purpose |
+| --- | --- |
+| `juce-spectroscope-analysis` | Headless FFT analysis with JUCE core, audio-basics, and DSP dependencies. |
+| `juce-spectroscope-ui` | OpenGL spectrum and waterfall visualization. |
+| `juce-spectroscope19` | Compatibility target linking the analysis and UI targets. |
+| `JuceSpectroscopeDemo` | Optional standalone microphone-input application. |
 
-Top-level builds fetch the pinned JUCE revision used by JammerNetz and enable both the analyzer tests and microphone-input demo by default:
+## Quick start
+
+Top-level builds download a checksum-pinned JUCE revision and enable the demo and analyzer tests by default:
 
 ```sh
+git clone https://github.com/christofmuc/juce-spectroscope19.git
+cd juce-spectroscope19
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-The `JuceSpectroscopeDemo` executable displays the selected audio input without doing FFT or OpenGL work on the audio callback. Use `JUCE_SPECTROSCOPE_BUILD_DEMO`, `JUCE_SPECTROSCOPE_BUILD_TESTS`, and `JUCE_SPECTROSCOPE_FETCH_JUCE` to control standalone configuration explicitly.
+Windows with a Visual Studio generator is multi-config, so pass `--config RelWithDebInfo` to the build and `-C RelWithDebInfo` to CTest. See [Building and using the standalone demo](docs/standalone-demo.md) for complete Windows, macOS, and Linux instructions.
 
-The former [juce-spectroscope19-ci](https://github.com/christofmuc/juce-spectroscope19-ci) super-project is retained only as historical reference. Its demo and AppVeyor responsibilities now live here.
+## Embedding the component
 
-## Example
+A parent project may provide its own `juce-static` target or JUCE CMake targets. In that mode this repository never downloads or compiles a second JUCE checkout:
 
-Here is a screenshot from the original demo rendering a YouTube performance of [Pergolesi's Stabat mater](https://www.youtube.com/watch?v=FjJ02agjjdo):
+```cmake
+add_subdirectory(modules/juce-spectroscope19)
+target_link_libraries(MyApplication PRIVATE juce-spectroscope19)
+```
 
-![A picture of the rendering of the spectrogram](Screenshot.png)
+Audio callbacks must not call `Spectrogram::process()` directly. Copy audio into a bounded preallocated queue, perform analysis on a worker thread, and let the UI poll completed spectra at a bounded rate. The standalone demo is a working reference implementation.
 
-## Third party libraries used
+See [Integrating JUCE Spectroscope](docs/integration.md) for target selection, ownership, lifecycle, and threading guidance.
 
-Please understand that this software uses the following third party libraries, and you are implicitly accepting their license terms as well when using this software. Please visit the links and familarize yourself with their conditions. 
+## Build options
 
-For the sake of easy accessibility, a standalone CMake build downloads and uses the following components:
+| Option | Top-level default | Purpose |
+| --- | ---: | --- |
+| `JUCE_SPECTROSCOPE_BUILD_DEMO` | `ON` | Build the standalone demo. |
+| `JUCE_SPECTROSCOPE_BUILD_TESTS` | `ON` | Build and register analyzer tests. |
+| `JUCE_SPECTROSCOPE_FETCH_JUCE` | `ON` | Fetch pinned JUCE when no parent JUCE target exists. |
+| `JUCE_SPECTROSCOPE_VALIDATE_SHADERS` | `OFF` | Validate shaders with an installed `glslangValidator`. |
 
-  1. The awesome [JUCE](https://juce.com/) library for cross-platform C++ development.
-  2. CMake for integrating the analyzer and UI targets into a parent project.
-  3. An optional installed [glslangValidator](https://github.com/KhronosGroup/glslang) for build-time shader validation.
+All three build, test, and fetch options default to `OFF` when this repository is added by a parent project. Shader validation never downloads a moving tool archive.
+
+## Historical demo repository
+
+The archived [juce-spectroscope19-ci](https://github.com/christofmuc/juce-spectroscope19-ci) repository originally documented the standalone application, git submodules, and AppVeyor builds. Its useful documentation and demo responsibilities now live here. The old GLEW, ASIO SDK, WebKit, `juce-cmake`, and AppVeyor setup is intentionally not required by the current build.
+
+The screenshot above originated in that demo while rendering a [performance of Pergolesi's Stabat mater](https://www.youtube.com/watch?v=FjJ02agjjdo).
+
+## Third-party software
+
+Standalone builds use:
+
+1. [JUCE](https://juce.com/) at the revision pinned in `CMakeLists.txt`;
+2. CMake for project generation and dependency integration;
+3. optionally, an installed [glslangValidator](https://github.com/KhronosGroup/glslang) for build-time shader validation.
+
+Review and accept the applicable third-party licence terms before distribution.
 
 ## Licensing
 
-As some substantial work has gone into the development of this and related software, I decided to offer a dual license - AGPL, see the LICENSE.md file for the details, for everybody interested in how this works and willing to spend some time her- or himself on this, and a commercial MIT license available from me on request. Thus I can help the OpenSource community without blocking possible commercial applications.
+This project is distributed under the GNU Affero General Public License by default. A commercial MIT licence is available from the author on request; see [LICENSE.md](LICENSE.md).
 
 ## Contributing
 
-All pull requests and issues welcome, I will try to get back to you as soon as I can. Due to the dual licensing please be aware that I will need to request transfer of copyright on accepting a PR. 
-
-## About the author
-
-Christof is a lifelong software developer having worked in various industries, and can't stop his programming hobby anyway. 
+Issues and pull requests are welcome. Due to the dual-licensing model, accepted contributions may require a copyright assignment.
