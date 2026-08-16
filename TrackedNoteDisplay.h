@@ -65,8 +65,10 @@ public:
 
 		std::sort(destination, destination + count,
 			[](const Entry& first, const Entry& second) {
-				if (first.note.confidence != second.note.confidence)
-					return first.note.confidence < second.note.confidence;
+				if (first.note.confidence < second.note.confidence)
+					return true;
+				if (second.note.confidence < first.note.confidence)
+					return false;
 				return first.opacity < second.opacity;
 			});
 		return count;

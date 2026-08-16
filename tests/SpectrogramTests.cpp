@@ -312,8 +312,9 @@ bool testTrackedNoteDisplayFadeAndPaintOrder()
 bool testPitchTrackerChordAndRelease()
 {
 	constexpr double concertA = 440.0;
-	auto frequencyForSemitones = [concertA](double semitonesFromA) {
-		return concertA * 0.25 * std::pow(2.0, semitonesFromA / 12.0);
+	auto frequencyForSemitones = [](double semitonesFromA) {
+		constexpr double referenceA = 440.0;
+		return referenceA * 0.25 * std::pow(2.0, semitonesFromA / 12.0);
 	};
 	PitchTracker tracker;
 	tracker.prepare(48000.0, static_cast<float>(concertA));
