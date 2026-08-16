@@ -173,7 +173,7 @@ SpectrogramWidget::SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram)
 		spectroscope::TrackedNoteHistory::capacity * 4 * 4));
 	noteIndices_.reserve(static_cast<std::size_t>(
 		spectroscope::TrackedNoteHistory::capacity * 6));
-	addAndMakeVisible(statusLabel_);
+	addChildComponent(statusLabel_);
 	statusLabel_.setJustificationType(Justification::topLeft);
 	trackedNotesOverlay_ = std::make_unique<TrackedNotesOverlay>();
 	addChildComponent(*trackedNotesOverlay_);
@@ -270,10 +270,7 @@ void SpectrogramWidget::newOpenGLContextCreated()
 		&& vertexBuffer_ != 0 && elements_ != 0;
 
 	if (openGLReady_.load(std::memory_order_acquire)) {
-		auto status = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
-		if (!noteOverlayReady_)
-			status += " (note atlas unavailable)";
-		publishStatus(std::move(status));
+		publishStatus(noteOverlayReady_ ? String() : "Note atlas unavailable");
 	}
 	else
 		publishStatus("Unable to initialize spectrogram OpenGL resources");
@@ -680,8 +677,10 @@ void SpectrogramWidget::publishStatus(String statusText)
 {
 	Component::SafePointer<SpectrogramWidget> safeThis(this);
 	MessageManager::callAsync([safeThis, statusTextToPublish = std::move(statusText)]() mutable {
-		if (safeThis != nullptr)
+		if (safeThis != nullptr) {
 			safeThis->statusLabel_.setText(std::move(statusTextToPublish), dontSendNotification);
+			safeThis->statusLabel_.setVisible(safeThis->statusLabel_.getText().isNotEmpty());
+		}
 	});
 }
 
