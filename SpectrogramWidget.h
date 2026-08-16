@@ -47,7 +47,7 @@ private:
 	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int width, int height, float initialValue);
 	void publishStatus(juce::String statusText);
 	void publishTrackedNotes(std::array<spectroscope::TrackedPitch, 6> notes, int noteCount,
-		double sampleRate, double minimumFrequencyHz);
+		double sampleRate, double minimumFrequencyHz, std::uint64_t sequence);
 	void updateTrackedNoteOverlay(const Spectrogram& analyzer);
 	void releaseOpenGLResources();
 	int pullAvailableFrames();

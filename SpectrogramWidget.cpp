@@ -41,11 +41,12 @@ public:
 	}
 
 	void setNotes(std::array<spectroscope::TrackedPitch, 6> newNotes, int newNoteCount,
-		double newSampleRate, double newMinimumFrequencyHz)
+		double newSampleRate, double newMinimumFrequencyHz, std::uint64_t sequence)
 	{
-		noteDisplay_.update(newNotes.data(),
-			jlimit(0, static_cast<int>(newNotes.size()), newNoteCount),
-			Time::getMillisecondCounterHiRes());
+		const auto validNoteCount = jlimit(0, static_cast<int>(newNotes.size()), newNoteCount);
+		noteDisplay_.update(
+			newNotes.data(), validNoteCount, Time::getMillisecondCounterHiRes());
+		noteHistory_.update(newNotes.data(), validNoteCount, sequence);
 		sampleRate_ = newSampleRate;
 		minimumFrequencyHz_ = newMinimumFrequencyHz;
 		startTimerHz(30);
@@ -55,6 +56,8 @@ public:
 	void clearNotes()
 	{
 		noteDisplay_.clear();
+		noteHistory_.clear();
+		latestSequence_.store(0, std::memory_order_relaxed);
 		stopTimer();
 		repaint();
 	}
@@ -63,13 +66,23 @@ public:
 	{
 		logarithmic_ = logarithmic;
 		horizontal_ = horizontal;
+		startTimerHz(30);
 		repaint();
+	}
+
+	void advanceLatestSequence(std::uint64_t sequence) noexcept
+	{
+		latestSequence_.store(sequence, std::memory_order_relaxed);
 	}
 
 	void paint(Graphics& graphics) override
 	{
 		if (sampleRate_ <= 0.0)
 			return;
+		if (horizontal_) {
+			paintHorizontalHistory(graphics);
+			return;
+		}
 
 		std::array<spectroscope::TrackedNoteDisplay::Entry,
 			spectroscope::TrackedNoteDisplay::capacity> entries {};
@@ -81,10 +94,7 @@ public:
 			const auto axisPosition = spectroscope::frequency_axis::normalisedPosition(
 				note.frequencyHz, sampleRate_, minimumFrequencyHz_, logarithmic_);
 			const auto noteColour = colourForMidiNote(note.midiNote);
-			if (horizontal_)
-				paintHorizontalAnnotation(graphics, note, axisPosition, noteColour, entry.opacity);
-			else
-				paintVerticalAnnotation(graphics, note, axisPosition, noteColour, entry.opacity);
+			paintVerticalAnnotation(graphics, note, axisPosition, noteColour, entry.opacity);
 		}
 	}
 
@@ -145,22 +155,42 @@ private:
 			Colours::lightgrey, opacity);
 	}
 
+	void paintHorizontalHistory(Graphics& graphics) const
+	{
+		std::array<spectroscope::TrackedNoteHistory::Entry,
+			spectroscope::TrackedNoteHistory::capacity> entries {};
+		const auto entryCount = noteHistory_.visibleEntries(
+			latestSequence_.load(std::memory_order_relaxed), waterfallRows,
+			entries.data(), static_cast<int>(entries.size()));
+		for (int entryIndex = 0; entryIndex < entryCount; ++entryIndex) {
+			const auto& entry = entries[static_cast<std::size_t>(entryIndex)];
+			const auto frequencyPosition = spectroscope::frequency_axis::normalisedPosition(
+				entry.note.frequencyHz, sampleRate_, minimumFrequencyHz_, logarithmic_);
+			paintHorizontalAnnotation(graphics, entry.note, frequencyPosition,
+				entry.historyPosition, colourForMidiNote(entry.note.midiNote), entry.opacity);
+		}
+	}
+
 	void paintHorizontalAnnotation(Graphics& graphics, const spectroscope::TrackedPitch& note,
-		float axisPosition, Colour noteColour, float opacity) const
+		float frequencyPosition, float historyPosition, Colour noteColour, float opacity) const
 	{
 		constexpr float annotationWidth = 126.0f;
 		constexpr float annotationHeight = 19.0f;
-		const auto screenPosition = spectroscope::frequency_axis::horizontalScreenPosition(axisPosition);
+		const auto screenPosition = spectroscope::frequency_axis::horizontalScreenPosition(
+			frequencyPosition);
 		const auto anchorY = screenPosition * static_cast<float>(getHeight());
+		const auto anchorX = historyPosition * static_cast<float>(getWidth());
 		const auto centreY = jlimit(annotationHeight * 0.5f,
 			static_cast<float>(getHeight()) - annotationHeight * 0.5f, anchorY);
-		auto background = Rectangle<float>(2.0f, centreY - annotationHeight * 0.5f,
+		auto background = Rectangle<float>(anchorX - annotationWidth,
+			centreY - annotationHeight * 0.5f,
 			annotationWidth, annotationHeight);
 		graphics.setColour(Colours::black.withAlpha(0.68f * opacity));
 		graphics.fillRoundedRectangle(background, 3.0f);
 		graphics.setColour(noteColour.withAlpha(0.8f * opacity));
-		graphics.drawLine(background.getRight(), anchorY,
-			jmin(background.getRight() + 12.0f, static_cast<float>(getWidth())), anchorY, 1.25f);
+		const auto markerX = jlimit(0.0f, static_cast<float>(getWidth() - 1), anchorX);
+		graphics.drawLine(markerX, centreY - annotationHeight * 0.5f,
+			markerX, centreY + annotationHeight * 0.5f, 1.25f);
 
 		graphics.setFont(11.0f);
 		drawCentredText(graphics, noteName(note), background.removeFromLeft(34.0f),
@@ -172,16 +202,27 @@ private:
 
 	void timerCallback() override
 	{
-		std::array<spectroscope::TrackedNoteDisplay::Entry,
-			spectroscope::TrackedNoteDisplay::capacity> entries {};
-		if (noteDisplay_.visibleEntries(Time::getMillisecondCounterHiRes(),
-			entries.data(), static_cast<int>(entries.size())) == 0) {
-			stopTimer();
+		auto hasVisibleEntries = false;
+		if (horizontal_) {
+			std::array<spectroscope::TrackedNoteHistory::Entry,
+				spectroscope::TrackedNoteHistory::capacity> entries {};
+			hasVisibleEntries = noteHistory_.visibleEntries(
+				latestSequence_.load(std::memory_order_relaxed), waterfallRows,
+				entries.data(), static_cast<int>(entries.size())) > 0;
+		} else {
+			std::array<spectroscope::TrackedNoteDisplay::Entry,
+				spectroscope::TrackedNoteDisplay::capacity> entries {};
+			hasVisibleEntries = noteDisplay_.visibleEntries(Time::getMillisecondCounterHiRes(),
+				entries.data(), static_cast<int>(entries.size())) > 0;
 		}
+		if (!hasVisibleEntries)
+			stopTimer();
 		repaint();
 	}
 
 	spectroscope::TrackedNoteDisplay noteDisplay_;
+	spectroscope::TrackedNoteHistory noteHistory_;
+	std::atomic<std::uint64_t> latestSequence_ { 0 };
 	double sampleRate_ { 0.0 };
 	double minimumFrequencyHz_ { 1.0 };
 	bool logarithmic_ { true };
@@ -524,15 +565,15 @@ void SpectrogramWidget::publishStatus(String statusText)
 
 void SpectrogramWidget::publishTrackedNotes(
 	std::array<spectroscope::TrackedPitch, 6> notes, int noteCount,
-	double sampleRate, double minimumFrequencyHz)
+	double sampleRate, double minimumFrequencyHz, std::uint64_t sequence)
 {
 	Component::SafePointer<SpectrogramWidget> safeThis(this);
 	MessageManager::callAsync([safeThis, notesToPublish = std::move(notes), noteCount,
-		sampleRate, minimumFrequencyHz]() mutable {
+		sampleRate, minimumFrequencyHz, sequence]() mutable {
 		if (safeThis != nullptr
 			&& safeThis->trackedNoteOverlayEnabled_.load(std::memory_order_relaxed)) {
 			safeThis->trackedNotesOverlay_->setNotes(
-				std::move(notesToPublish), noteCount, sampleRate, minimumFrequencyHz);
+				std::move(notesToPublish), noteCount, sampleRate, minimumFrequencyHz, sequence);
 		}
 	});
 }
@@ -555,7 +596,7 @@ void SpectrogramWidget::updateTrackedNoteOverlay(const Spectrogram& analyzer)
 		concertAHz_.load(std::memory_order_relaxed), notes.data(), maximumDisplayedNotes);
 
 	publishTrackedNotes(std::move(notes), noteCount, analyzer.sampleRate(),
-		analyzer.sampleRate() / static_cast<double>(analyzer.fftSize()));
+		analyzer.sampleRate() / static_cast<double>(analyzer.fftSize()), lastSequence_);
 }
 
 void SpectrogramWidget::releaseOpenGLResources()
@@ -641,6 +682,7 @@ int SpectrogramWidget::pullAvailableFrames()
 	}
 
 	lastSequence_ = copiedSequence;
+	trackedNotesOverlay_->advanceLatestSequence(copiedSequence);
 	updateTrackedNoteOverlay(*analyzer);
 	return copiedRows;
 }

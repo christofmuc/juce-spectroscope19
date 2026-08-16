@@ -309,6 +309,53 @@ bool testTrackedNoteDisplayFadeAndPaintOrder()
 		"annotations should disappear after the fade-out ramp completes");
 }
 
+bool testTrackedNoteHorizontalHistory()
+{
+	spectroscope::TrackedNoteHistory history;
+	const std::array<spectroscope::TrackedPitch, 2> notes {
+		spectroscope::TrackedPitch { 440.0f, 0.25f, 0.0f, 69 },
+		spectroscope::TrackedPitch { 444.0f, 0.80f, 15.7f, 69 }
+	};
+	history.update(notes.data(), static_cast<int>(notes.size()), 100);
+
+	std::array<spectroscope::TrackedNoteHistory::Entry,
+		spectroscope::TrackedNoteHistory::capacity> entries {};
+	auto count = history.visibleEntries(100, 512,
+		entries.data(), static_cast<int>(entries.size()));
+	if (!expect(count == 2, "horizontal history should retain nearby note annotations")
+		|| !expect(approximatelyEqual(entries[0].historyPosition, 1.0f)
+			&& approximatelyEqual(entries[1].historyPosition, 1.0f),
+			"currently tracked notes should stay attached to the newest right-edge frame")
+		|| !expect(entries[0].note.confidence < entries[1].note.confidence,
+			"horizontal annotations should also paint strongest last")) {
+		return false;
+	}
+
+	history.update(&notes[1], 1, 110);
+	count = history.visibleEntries(120, 512,
+		entries.data(), static_cast<int>(entries.size()));
+	const auto expectedReleasedPosition = 1.0f - 10.0f / 511.0f;
+	if (!expect(count == 2, "released horizontal annotations should remain in history")
+		|| !expect(approximatelyEqual(entries[0].historyPosition, expectedReleasedPosition),
+			"a released annotation should move left by the same number of waterfall rows")
+		|| !expect(approximatelyEqual(entries[1].historyPosition, 1.0f),
+			"a continuing note should remain at the newest frame")) {
+		return false;
+	}
+
+	history.update(nullptr, 0, 130);
+	count = history.visibleEntries(140, 512,
+		entries.data(), static_cast<int>(entries.size()));
+	if (!expect(count == 2 && entries[1].historyPosition < 1.0f,
+		"the final active annotation should start scrolling after release")) {
+		return false;
+	}
+
+	return expect(history.visibleEntries(642, 512,
+		entries.data(), static_cast<int>(entries.size())) == 0,
+		"horizontal annotations should leave the screen with their waterfall rows");
+}
+
 bool testPitchTrackerChordAndRelease()
 {
 	constexpr double concertA = 440.0;
@@ -643,6 +690,7 @@ int main()
 		&& testPitchTrackerPresets()
 		&& testTrackedPitchMusicalValues()
 		&& testTrackedNoteDisplayFadeAndPaintOrder()
+		&& testTrackedNoteHorizontalHistory()
 		&& testPitchTrackerChordAndRelease()
 		&& testPitchTrackerHarmonicMusicalTone()
 		&& testPitchTrackerRejectsBroadbandNoise()
