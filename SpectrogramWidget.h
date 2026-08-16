@@ -11,6 +11,7 @@
 #include "OpenGLFloatTexture.h"
 #include "ShaderBasedComponent.h"
 #include "Spectrogram.h"
+#include "TrackedNoteDisplay.h"
 #include "TrackedPitch.h"
 
 #include <atomic>
@@ -45,9 +46,12 @@ private:
 
 	std::shared_ptr<juce::OpenGLTexture> createColorLookupTexture();
 	std::shared_ptr<OpenGLFloatTexture> createDataTexture(int width, int height, float initialValue);
+	static juce::Image createNoteAtlasImage();
+	bool createNoteOverlayResources();
+	void renderHorizontalNoteHistory(double sampleRate, double minimumFrequencyHz);
 	void publishStatus(juce::String statusText);
 	void publishTrackedNotes(std::array<spectroscope::TrackedPitch, 6> notes, int noteCount,
-		double sampleRate, double minimumFrequencyHz, std::uint64_t sequence);
+		double sampleRate, double minimumFrequencyHz);
 	void updateTrackedNoteOverlay(const Spectrogram& analyzer);
 	void releaseOpenGLResources();
 	int pullAvailableFrames();
@@ -56,7 +60,10 @@ private:
 
 	GLuint vertexBuffer_ { 0 };
 	GLuint elements_ { 0 };
+	GLuint noteVertexBuffer_ { 0 };
+	GLuint noteElements_ { 0 };
 	std::shared_ptr<juce::OpenGLTexture> textureLUT_;
+	std::shared_ptr<juce::OpenGLTexture> noteAtlasTexture_;
 	std::shared_ptr<OpenGLFloatTexture> spectrumData_;
 	std::shared_ptr<OpenGLFloatTexture> spectrumHistory_;
 	std::shared_ptr<OpenGLFloatTexture> pitchClassData_;
@@ -64,6 +71,10 @@ private:
 
 	std::unique_ptr<juce::OpenGLShaderProgram> shader_;
 	std::unique_ptr<juce::OpenGLShaderProgram::Attribute> position_;
+	std::unique_ptr<juce::OpenGLShaderProgram> noteShader_;
+	std::unique_ptr<juce::OpenGLShaderProgram::Attribute> notePosition_;
+	std::unique_ptr<juce::OpenGLShaderProgram::Attribute> noteTextureCoordinate_;
+	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> noteAtlasUniform_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> resolution_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> audioSampleData_;
 	std::shared_ptr<juce::OpenGLShaderProgram::Uniform> lutTexture_;
@@ -85,6 +96,8 @@ private:
 	std::vector<GLfloat> pendingSpectra_;
 	std::vector<GLfloat> pitchClassDataHistory_;
 	std::vector<GLfloat> pendingPitchClasses_;
+	std::vector<GLfloat> noteVertices_;
+	std::vector<GLuint> noteIndices_;
 	std::array<int, 32> pendingTextureRows_ {};
 	int waterfallPosition_ { 0 };
 	std::uint64_t lastSequence_ { 0 };
@@ -93,10 +106,14 @@ private:
 	std::atomic<bool> horizontal_ { false };
 	std::atomic<bool> pitchColourMode_ { false };
 	std::atomic<bool> trackedNoteOverlayEnabled_ { false };
+	std::atomic<bool> clearTrackedNoteHistoryRequested_ { false };
 	std::atomic<float> concertAHz_ { 440.0f };
 	float upperHalfPercentage_ { 0.618f };
 	std::atomic<bool> openGLReady_ { false };
 	double nextTrackedNoteUpdateMs_ { 0.0 };
+	bool noteOverlayReady_ { false };
+	spectroscope::TrackedNoteHistory trackedNoteHistory_;
+	juce::Image noteAtlasImage_;
 
 	juce::Label statusLabel_;
 	std::unique_ptr<TrackedNotesOverlay> trackedNotesOverlay_;

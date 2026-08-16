@@ -1,4 +1,5 @@
 #include "FrequencyAxis.h"
+#include "NoteAtlasLayout.h"
 #include "PitchTracker.h"
 #include "Spectrogram.h"
 #include "TrackedNoteDisplay.h"
@@ -697,6 +698,33 @@ bool testFrequencyAxisMapping()
 			spectroscope::frequency_axis::horizontalScreenPosition(1.0f), 0.0f),
 			"horizontal mode should place Nyquist at the screen top");
 }
+
+bool testNoteAtlasLayout()
+{
+	using namespace spectroscope::note_atlas;
+	const auto first = pixelBoundsForMidiNote(0);
+	const auto endOfFirstRow = pixelBoundsForMidiNote(columns - 1);
+	const auto startOfSecondRow = pixelBoundsForMidiNote(columns);
+	const auto last = pixelBoundsForMidiNote(midiNoteCount - 1);
+	const auto belowRange = pixelBoundsForMidiNote(-1);
+	const auto aboveRange = pixelBoundsForMidiNote(midiNoteCount);
+
+	return expect(rows * columns == midiNoteCount,
+		"the note atlas grid should contain every MIDI note exactly once")
+		&& expect(first.x == 0 && first.y == 0,
+			"MIDI note zero should occupy the first atlas cell")
+		&& expect(endOfFirstRow.x + endOfFirstRow.width == imageWidth,
+			"the first note row should fill the atlas width")
+		&& expect(startOfSecondRow.x == 0 && startOfSecondRow.y == cellHeight,
+			"the next note row should begin directly below the first")
+		&& expect(last.x + last.width == imageWidth
+			&& last.y + last.height == imageHeight,
+			"MIDI note 127 should occupy the final atlas cell")
+		&& expect(belowRange.x == first.x && belowRange.y == first.y,
+			"out-of-range low notes should clamp to the first atlas cell")
+		&& expect(aboveRange.x == last.x && aboveRange.y == last.y,
+			"out-of-range high notes should clamp to the final atlas cell");
+}
 }
 
 int main()
@@ -712,7 +740,7 @@ int main()
 		&& testSpectrogramPublishesTrackedPitch()
 		&& testSilence() && testBinCentredSine() && testResetAndOverflow()
 		&& testSpectrumFrameHistoryOrderAndWraparound() && testWaterfallTimelineMapping()
-		&& testFrequencyAxisMapping();
+		&& testFrequencyAxisMapping() && testNoteAtlasLayout();
 	if (passed)
 		std::cout << "All spectrogram analyzer tests passed\n";
 	return passed ? EXIT_SUCCESS : EXIT_FAILURE;

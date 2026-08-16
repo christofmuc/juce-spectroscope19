@@ -85,6 +85,8 @@ if(NOT TARGET juce-static)
 endif()
 
 set(SHADER_FILES
+	"${CMAKE_CURRENT_LIST_DIR}/shaders/note_overlay.frag.glsl"
+	"${CMAKE_CURRENT_LIST_DIR}/shaders/note_overlay.vert.glsl"
 	"${CMAKE_CURRENT_LIST_DIR}/shaders/oscilloscope.frag.glsl"
 	"${CMAKE_CURRENT_LIST_DIR}/shaders/oscilloscope.vert.glsl"
 )
@@ -106,6 +108,7 @@ add_custom_command(
 
 add_library(juce-spectroscope-analysis STATIC
 	FrequencyAxis.h
+	NoteAtlasLayout.h
 	PitchTracker.cpp
 	PitchTracker.h
 	Spectrogram.cpp

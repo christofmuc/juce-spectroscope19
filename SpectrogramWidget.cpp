@@ -8,12 +8,14 @@
 
 #include "BinaryResources.h"
 #include "FrequencyAxis.h"
+#include "NoteAtlasLayout.h"
 #include "OpenGLHelpers.h"
 #include "TrackedNoteDisplay.h"
 #include "WaterfallTimeline.h"
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 using namespace juce;
 using namespace juce::gl;
@@ -21,6 +23,19 @@ using namespace juce::gl;
 namespace {
 constexpr int waterfallRows = 512;
 constexpr int maximumRowsPerRefresh = 32;
+constexpr int noteAtlasTextureUnit = 5;
+
+Colour colourForMidiNote(int midiNote)
+{
+	const auto pitchClass = ((midiNote % 12) + 12) % 12;
+	const auto fifthIndex = (pitchClass * 7) % 12;
+	return Colour::fromHSV(static_cast<float>(fifthIndex) / 12.0f, 0.72f, 1.0f, 1.0f);
+}
+
+String noteName(int midiNote)
+{
+	return MidiMessage::getMidiNoteName(midiNote, true, true, 4);
+}
 
 #if JUCE_DEBUG
 void assertTextureBound(OpenGLContext& context, GLenum textureUnit, GLuint expectedTexture)
@@ -41,49 +56,34 @@ public:
 	}
 
 	void setNotes(std::array<spectroscope::TrackedPitch, 6> newNotes, int newNoteCount,
-		double newSampleRate, double newMinimumFrequencyHz, std::uint64_t sequence)
+		double newSampleRate, double newMinimumFrequencyHz)
 	{
 		const auto validNoteCount = jlimit(0, static_cast<int>(newNotes.size()), newNoteCount);
 		noteDisplay_.update(
 			newNotes.data(), validNoteCount, Time::getMillisecondCounterHiRes());
-		noteHistory_.update(newNotes.data(), validNoteCount, sequence);
 		sampleRate_ = newSampleRate;
 		minimumFrequencyHz_ = newMinimumFrequencyHz;
-		startAnimationTimer();
+		startTimerHz(30);
 		repaint();
 	}
 
 	void clearNotes()
 	{
 		noteDisplay_.clear();
-		noteHistory_.clear();
-		latestSequence_.store(0, std::memory_order_relaxed);
 		stopTimer();
 		repaint();
 	}
 
-	void setAxisMode(bool logarithmic, bool horizontal)
+	void setAxisMode(bool logarithmic)
 	{
 		logarithmic_ = logarithmic;
-		horizontal_ = horizontal;
-		startAnimationTimer();
 		repaint();
-	}
-
-	void advanceLatestSequence(std::uint64_t sequence) noexcept
-	{
-		latestSequence_.store(sequence, std::memory_order_relaxed);
 	}
 
 	void paint(Graphics& graphics) override
 	{
 		if (sampleRate_ <= 0.0)
 			return;
-		if (horizontal_) {
-			paintHorizontalHistory(graphics);
-			return;
-		}
-
 		std::array<spectroscope::TrackedNoteDisplay::Entry,
 			spectroscope::TrackedNoteDisplay::capacity> entries {};
 		const auto entryCount = noteDisplay_.visibleEntries(Time::getMillisecondCounterHiRes(),
@@ -99,27 +99,9 @@ public:
 	}
 
 private:
-	struct CachedHorizontalLabel {
-		String text;
-		int midiNote { -1 };
-		Image image;
-	};
-
-	void startAnimationTimer()
-	{
-		startTimerHz(horizontal_ ? 60 : 30);
-	}
-
-	static Colour colourForMidiNote(int midiNote)
-	{
-		const auto pitchClass = ((midiNote % 12) + 12) % 12;
-		const auto fifthIndex = (pitchClass * 7) % 12;
-		return Colour::fromHSV(static_cast<float>(fifthIndex) / 12.0f, 0.72f, 1.0f, 1.0f);
-	}
-
 	static String noteName(const spectroscope::TrackedPitch& note)
 	{
-		return MidiMessage::getMidiNoteName(note.midiNote, true, true, 4);
+		return ::noteName(note.midiNote);
 	}
 
 	static String centsText(const spectroscope::TrackedPitch& note)
@@ -166,97 +148,31 @@ private:
 			Colours::lightgrey, opacity);
 	}
 
-	void paintHorizontalHistory(Graphics& graphics)
-	{
-		std::array<spectroscope::TrackedNoteHistory::Entry,
-			spectroscope::TrackedNoteHistory::capacity> entries {};
-		const auto entryCount = noteHistory_.visibleEntries(
-			latestSequence_.load(std::memory_order_relaxed), waterfallRows,
-			entries.data(), static_cast<int>(entries.size()));
-		for (int entryIndex = 0; entryIndex < entryCount; ++entryIndex) {
-			const auto& entry = entries[static_cast<std::size_t>(entryIndex)];
-			const auto frequencyPosition = spectroscope::frequency_axis::normalisedPosition(
-				entry.note.frequencyHz, sampleRate_, minimumFrequencyHz_, logarithmic_);
-			paintHorizontalAnnotation(graphics, entry, frequencyPosition);
-		}
-	}
-
-	const Image& horizontalLabelImage(const spectroscope::TrackedNoteHistory::Entry& entry)
-	{
-		constexpr int annotationWidth = 36;
-		constexpr int annotationHeight = 17;
-		auto& cachedLabel = horizontalLabelCache_[static_cast<std::size_t>(entry.slotIndex)];
-		const auto text = noteName(entry.note);
-		if (!cachedLabel.image.isValid() || cachedLabel.text != text
-			|| cachedLabel.midiNote != entry.note.midiNote) {
-			cachedLabel.text = text;
-			cachedLabel.midiNote = entry.note.midiNote;
-			cachedLabel.image = Image(Image::ARGB, annotationWidth, annotationHeight, true);
-			Graphics labelGraphics(cachedLabel.image);
-			const auto bounds = cachedLabel.image.getBounds().toFloat();
-			labelGraphics.setColour(Colours::black.withAlpha(0.72f));
-			labelGraphics.fillRoundedRectangle(bounds, 3.0f);
-			labelGraphics.setFont(11.0f);
-			drawCentredText(labelGraphics, text, bounds,
-				colourForMidiNote(entry.note.midiNote), 1.0f);
-		}
-		return cachedLabel.image;
-	}
-
-	void paintHorizontalAnnotation(Graphics& graphics,
-		const spectroscope::TrackedNoteHistory::Entry& entry, float frequencyPosition)
-	{
-		const auto& labelImage = horizontalLabelImage(entry);
-		const auto annotationWidth = static_cast<float>(labelImage.getWidth());
-		const auto annotationHeight = static_cast<float>(labelImage.getHeight());
-		const auto screenPosition = spectroscope::frequency_axis::horizontalScreenPosition(
-			frequencyPosition);
-		const auto anchorY = screenPosition * static_cast<float>(getHeight());
-		const auto anchorX = entry.historyPosition * static_cast<float>(getWidth());
-		const auto centreY = jlimit(annotationHeight * 0.5f,
-			static_cast<float>(getHeight()) - annotationHeight * 0.5f, anchorY);
-		graphics.drawImageAt(labelImage, roundToInt(anchorX - annotationWidth),
-			roundToInt(centreY - annotationHeight * 0.5f));
-		graphics.setColour(colourForMidiNote(entry.note.midiNote).withAlpha(0.8f));
-		const auto markerX = jlimit(0.0f, static_cast<float>(getWidth() - 1), anchorX);
-		graphics.drawLine(markerX, centreY - annotationHeight * 0.5f,
-			markerX, centreY + annotationHeight * 0.5f, 1.25f);
-	}
-
 	void timerCallback() override
 	{
-		auto hasVisibleEntries = false;
-		if (horizontal_) {
-			std::array<spectroscope::TrackedNoteHistory::Entry,
-				spectroscope::TrackedNoteHistory::capacity> entries {};
-			hasVisibleEntries = noteHistory_.visibleEntries(
-				latestSequence_.load(std::memory_order_relaxed), waterfallRows,
-				entries.data(), static_cast<int>(entries.size())) > 0;
-		} else {
-			std::array<spectroscope::TrackedNoteDisplay::Entry,
-				spectroscope::TrackedNoteDisplay::capacity> entries {};
-			hasVisibleEntries = noteDisplay_.visibleEntries(Time::getMillisecondCounterHiRes(),
-				entries.data(), static_cast<int>(entries.size())) > 0;
-		}
+		std::array<spectroscope::TrackedNoteDisplay::Entry,
+			spectroscope::TrackedNoteDisplay::capacity> entries {};
+		const auto hasVisibleEntries = noteDisplay_.visibleEntries(
+			Time::getMillisecondCounterHiRes(), entries.data(), static_cast<int>(entries.size())) > 0;
 		if (!hasVisibleEntries)
 			stopTimer();
 		repaint();
 	}
 
 	spectroscope::TrackedNoteDisplay noteDisplay_;
-	spectroscope::TrackedNoteHistory noteHistory_;
-	std::array<CachedHorizontalLabel, spectroscope::TrackedNoteHistory::capacity>
-		horizontalLabelCache_ {};
-	std::atomic<std::uint64_t> latestSequence_ { 0 };
 	double sampleRate_ { 0.0 };
 	double minimumFrequencyHz_ { 1.0 };
 	bool logarithmic_ { true };
-	bool horizontal_ { false };
 };
 
 SpectrogramWidget::SpectrogramWidget(std::weak_ptr<Spectrogram> spectrogram)
 	: spectrogram_(std::move(spectrogram))
 {
+	noteAtlasImage_ = createNoteAtlasImage();
+	noteVertices_.reserve(static_cast<std::size_t>(
+		spectroscope::TrackedNoteHistory::capacity * 4 * 4));
+	noteIndices_.reserve(static_cast<std::size_t>(
+		spectroscope::TrackedNoteHistory::capacity * 6));
 	addAndMakeVisible(statusLabel_);
 	statusLabel_.setJustificationType(Justification::topLeft);
 	trackedNotesOverlay_ = std::make_unique<TrackedNotesOverlay>();
@@ -345,6 +261,7 @@ void SpectrogramWidget::newOpenGLContextCreated()
 	spectrumHistory_ = createDataTexture(analyzer->spectrumSize(), waterfallRows, analyzer->floorDb());
 	pitchClassData_ = createDataTexture(analyzer->pitchClassSize(), 1, 0.0f);
 	pitchClassHistory_ = createDataTexture(analyzer->pitchClassSize(), waterfallRows, 0.0f);
+	noteOverlayReady_ = createNoteOverlayResources();
 
 	context_.extensions.glGenBuffers(1, &vertexBuffer_);
 	context_.extensions.glGenBuffers(1, &elements_);
@@ -352,8 +269,12 @@ void SpectrogramWidget::newOpenGLContextCreated()
 		&& pitchClassData_ != nullptr && pitchClassHistory_ != nullptr
 		&& vertexBuffer_ != 0 && elements_ != 0;
 
-	if (openGLReady_.load(std::memory_order_acquire))
-		publishStatus("GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2));
+	if (openGLReady_.load(std::memory_order_acquire)) {
+		auto status = "GLSL: v" + String(OpenGLShaderProgram::getLanguageVersion(), 2);
+		if (!noteOverlayReady_)
+			status += " (note atlas unavailable)";
+		publishStatus(std::move(status));
+	}
 	else
 		publishStatus("Unable to initialize spectrogram OpenGL resources");
 	refreshRequested_.store(true, std::memory_order_release);
@@ -390,6 +311,69 @@ std::shared_ptr<OpenGLFloatTexture> SpectrogramWidget::createDataTexture(
 	return texture;
 }
 
+Image SpectrogramWidget::createNoteAtlasImage()
+{
+	using namespace spectroscope::note_atlas;
+	Image atlas(Image::ARGB, imageWidth, imageHeight, true);
+	Graphics graphics(atlas);
+	graphics.setFont(static_cast<float>(11 * rasterScale));
+
+	for (int midiNote = 0; midiNote < midiNoteCount; ++midiNote) {
+		const auto cell = pixelBoundsForMidiNote(midiNote);
+		const auto labelBounds = Rectangle<float>(
+			static_cast<float>(cell.x + horizontalPadding * rasterScale),
+			static_cast<float>(cell.y + verticalPadding * rasterScale),
+			static_cast<float>(labelWidth * rasterScale),
+			static_cast<float>(labelHeight * rasterScale));
+		graphics.setColour(Colours::black.withAlpha(0.72f));
+		graphics.fillRoundedRectangle(labelBounds, static_cast<float>(3 * rasterScale));
+		graphics.setColour(colourForMidiNote(midiNote));
+		graphics.drawFittedText(noteName(midiNote), labelBounds.toNearestInt(),
+			Justification::centred, 1, 0.75f);
+		graphics.fillRect(Rectangle<float>(labelBounds.getRight() - rasterScale,
+			labelBounds.getY(), static_cast<float>(rasterScale), labelBounds.getHeight()));
+	}
+	return atlas;
+}
+
+bool SpectrogramWidget::createNoteOverlayResources()
+{
+	const std::string vertexShader(
+		reinterpret_cast<const char*>(note_overlay_vert_glsl), note_overlay_vert_glsl_size);
+	const std::string fragmentShader(
+		reinterpret_cast<const char*>(note_overlay_frag_glsl), note_overlay_frag_glsl_size);
+
+	noteShader_ = std::make_unique<OpenGLShaderProgram>(context_);
+	if (!noteShader_->addVertexShader(vertexShader)
+		|| !noteShader_->addFragmentShader(fragmentShader)
+		|| !noteShader_->link()) {
+		DBG("Note overlay shader error: " + noteShader_->getLastError());
+		return false;
+	}
+
+	noteShader_->use();
+	notePosition_ = std::make_unique<OpenGLShaderProgram::Attribute>(*noteShader_, "position");
+	noteTextureCoordinate_ = std::make_unique<OpenGLShaderProgram::Attribute>(
+		*noteShader_, "textureCoordinate");
+	noteAtlasUniform_ = createUniform(context_, *noteShader_, "noteAtlas");
+	const auto invalidAttribute = [](const auto& attribute) {
+		return attribute == nullptr || attribute->attributeID == static_cast<GLuint>(-1);
+	};
+	if (invalidAttribute(notePosition_) || invalidAttribute(noteTextureCoordinate_)
+		|| noteAtlasUniform_ == nullptr) {
+		DBG("Note overlay shader interface is incomplete");
+		return false;
+	}
+
+	noteAtlasTexture_ = std::make_shared<OpenGLTexture>();
+	noteAtlasTexture_->loadImage(noteAtlasImage_);
+	noteAtlasTexture_->unbind();
+	context_.extensions.glGenBuffers(1, &noteVertexBuffer_);
+	context_.extensions.glGenBuffers(1, &noteElements_);
+	return noteAtlasTexture_->getTextureID() != 0
+		&& noteVertexBuffer_ != 0 && noteElements_ != 0;
+}
+
 void SpectrogramWidget::renderOpenGL()
 {
 	jassert(OpenGLHelpers::isContextActive());
@@ -401,6 +385,8 @@ void SpectrogramWidget::renderOpenGL()
 
 	if (!openGLReady_.load(std::memory_order_acquire) || shader_ == nullptr || position_ == nullptr)
 		return;
+	if (clearTrackedNoteHistoryRequested_.exchange(false, std::memory_order_acq_rel))
+		trackedNoteHistory_.clear();
 
 	int spectraUpdated = 0;
 	const auto refreshWasRequested = refreshRequested_.exchange(false, std::memory_order_acq_rel);
@@ -514,6 +500,111 @@ void SpectrogramWidget::renderOpenGL()
 	pitchClassData_->unbind();
 	context_.extensions.glActiveTexture(GL_TEXTURE4);
 	pitchClassHistory_->unbind();
+
+	if (horizontal_.load(std::memory_order_relaxed)
+		&& trackedNoteOverlayEnabled_.load(std::memory_order_relaxed)) {
+		if (const auto analyzer = spectrogram_.lock()) {
+			renderHorizontalNoteHistory(analyzer->sampleRate(),
+				analyzer->sampleRate() / static_cast<double>(analyzer->fftSize()));
+		}
+	}
+}
+
+void SpectrogramWidget::renderHorizontalNoteHistory(
+	double sampleRate, double minimumFrequencyHz)
+{
+	if (!noteOverlayReady_ || noteShader_ == nullptr || noteAtlasTexture_ == nullptr
+		|| getWidth() <= 0 || getHeight() <= 0) {
+		return;
+	}
+
+	std::array<spectroscope::TrackedNoteHistory::Entry,
+		spectroscope::TrackedNoteHistory::capacity> entries {};
+	const auto entryCount = trackedNoteHistory_.visibleEntries(lastSequence_, waterfallRows,
+		entries.data(), static_cast<int>(entries.size()));
+	if (entryCount <= 0)
+		return;
+
+	using namespace spectroscope::note_atlas;
+	const auto componentWidth = static_cast<float>(getWidth());
+	const auto componentHeight = static_cast<float>(getHeight());
+	const auto displayCellWidth = static_cast<float>(cellWidth) / rasterScale;
+	const auto displayCellHeight = static_cast<float>(cellHeight) / rasterScale;
+	const auto rightPadding = static_cast<float>(horizontalPadding);
+	const auto textureWidth = static_cast<float>(noteAtlasTexture_->getWidth());
+	const auto textureHeight = static_cast<float>(noteAtlasTexture_->getHeight());
+
+	noteVertices_.clear();
+	noteIndices_.clear();
+	for (int entryIndex = 0; entryIndex < entryCount; ++entryIndex) {
+		const auto& entry = entries[static_cast<std::size_t>(entryIndex)];
+		const auto frequencyPosition = spectroscope::frequency_axis::normalisedPosition(
+			entry.note.frequencyHz, sampleRate, minimumFrequencyHz,
+			xLogAxis_.load(std::memory_order_relaxed));
+		const auto screenPosition = spectroscope::frequency_axis::horizontalScreenPosition(
+			frequencyPosition);
+		const auto anchorX = entry.historyPosition * componentWidth;
+		const auto centreY = jlimit(displayCellHeight * 0.5f,
+			componentHeight - displayCellHeight * 0.5f, screenPosition * componentHeight);
+		const auto right = anchorX + rightPadding;
+		const auto left = right - displayCellWidth;
+		const auto top = centreY - displayCellHeight * 0.5f;
+		const auto bottom = centreY + displayCellHeight * 0.5f;
+		const auto toNdcX = [componentWidth](float x) {
+			return 2.0f * x / componentWidth - 1.0f;
+		};
+		const auto toNdcY = [componentHeight](float y) {
+			return 1.0f - 2.0f * y / componentHeight;
+		};
+
+		const auto atlasBounds = pixelBoundsForMidiNote(entry.note.midiNote);
+		const auto textureLeft = static_cast<float>(atlasBounds.x) / textureWidth;
+		const auto textureRight = static_cast<float>(atlasBounds.x + atlasBounds.width) / textureWidth;
+		const auto textureTop = 1.0f - static_cast<float>(atlasBounds.y) / textureHeight;
+		const auto textureBottom = 1.0f
+			- static_cast<float>(atlasBounds.y + atlasBounds.height) / textureHeight;
+		const GLfloat quad[] = {
+			toNdcX(right), toNdcY(top), textureRight, textureTop,
+			toNdcX(right), toNdcY(bottom), textureRight, textureBottom,
+			toNdcX(left), toNdcY(bottom), textureLeft, textureBottom,
+			toNdcX(left), toNdcY(top), textureLeft, textureTop
+		};
+		noteVertices_.insert(noteVertices_.end(), std::begin(quad), std::end(quad));
+		const auto baseVertex = static_cast<GLuint>(entryIndex * 4);
+		const GLuint indices[] = {
+			baseVertex, baseVertex + 1, baseVertex + 3,
+			baseVertex + 1, baseVertex + 2, baseVertex + 3
+		};
+		noteIndices_.insert(noteIndices_.end(), std::begin(indices), std::end(indices));
+	}
+
+	noteShader_->use();
+	setUniform(noteAtlasUniform_, noteAtlasTextureUnit);
+	context_.extensions.glActiveTexture(GL_TEXTURE0 + noteAtlasTextureUnit);
+	noteAtlasTexture_->bind();
+	context_.extensions.glBindBuffer(GL_ARRAY_BUFFER, noteVertexBuffer_);
+	context_.extensions.glBufferData(GL_ARRAY_BUFFER,
+		static_cast<GLsizeiptr>(noteVertices_.size() * sizeof(GLfloat)),
+		noteVertices_.data(), GL_STREAM_DRAW);
+	context_.extensions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, noteElements_);
+	context_.extensions.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+		static_cast<GLsizeiptr>(noteIndices_.size() * sizeof(GLuint)),
+		noteIndices_.data(), GL_STREAM_DRAW);
+	context_.extensions.glVertexAttribPointer(notePosition_->attributeID, 2, GL_FLOAT, GL_FALSE,
+		4 * sizeof(GLfloat), nullptr);
+	context_.extensions.glVertexAttribPointer(noteTextureCoordinate_->attributeID, 2, GL_FLOAT,
+		GL_FALSE, 4 * sizeof(GLfloat), reinterpret_cast<const void*>(2 * sizeof(GLfloat)));
+	context_.extensions.glEnableVertexAttribArray(notePosition_->attributeID);
+	context_.extensions.glEnableVertexAttribArray(noteTextureCoordinate_->attributeID);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+	glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(noteIndices_.size()), GL_UNSIGNED_INT, nullptr);
+	glDisable(GL_BLEND);
+	context_.extensions.glDisableVertexAttribArray(notePosition_->attributeID);
+	context_.extensions.glDisableVertexAttribArray(noteTextureCoordinate_->attributeID);
+	context_.extensions.glBindBuffer(GL_ARRAY_BUFFER, 0);
+	context_.extensions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	noteAtlasTexture_->unbind();
 }
 
 void SpectrogramWidget::resized()
@@ -532,14 +623,18 @@ void SpectrogramWidget::refreshData()
 void SpectrogramWidget::setXAxis(bool logAxis)
 {
 	xLogAxis_.store(logAxis, std::memory_order_relaxed);
-	trackedNotesOverlay_->setAxisMode(logAxis, horizontal_.load(std::memory_order_relaxed));
+	trackedNotesOverlay_->setAxisMode(logAxis);
 	context_.triggerRepaint();
 }
 
 void SpectrogramWidget::setHorizontalMode(bool horizontal)
 {
 	horizontal_.store(horizontal, std::memory_order_relaxed);
-	trackedNotesOverlay_->setAxisMode(xLogAxis_.load(std::memory_order_relaxed), horizontal);
+	const auto overlayEnabled = trackedNoteOverlayEnabled_.load(std::memory_order_relaxed);
+	trackedNotesOverlay_->setVisible(overlayEnabled && !horizontal);
+	if (horizontal)
+		trackedNotesOverlay_->clearNotes();
+	clearTrackedNoteHistoryRequested_.store(true, std::memory_order_release);
 	context_.triggerRepaint();
 }
 
@@ -552,9 +647,11 @@ void SpectrogramWidget::setPitchColourMode(bool enabled)
 void SpectrogramWidget::setTrackedNoteOverlayEnabled(bool enabled)
 {
 	trackedNoteOverlayEnabled_.store(enabled, std::memory_order_relaxed);
-	trackedNotesOverlay_->setVisible(enabled);
+	trackedNotesOverlay_->setVisible(
+		enabled && !horizontal_.load(std::memory_order_relaxed));
 	if (!enabled)
 		trackedNotesOverlay_->clearNotes();
+	clearTrackedNoteHistoryRequested_.store(true, std::memory_order_release);
 	refreshData();
 }
 
@@ -590,15 +687,16 @@ void SpectrogramWidget::publishStatus(String statusText)
 
 void SpectrogramWidget::publishTrackedNotes(
 	std::array<spectroscope::TrackedPitch, 6> notes, int noteCount,
-	double sampleRate, double minimumFrequencyHz, std::uint64_t sequence)
+	double sampleRate, double minimumFrequencyHz)
 {
 	Component::SafePointer<SpectrogramWidget> safeThis(this);
 	MessageManager::callAsync([safeThis, notesToPublish = std::move(notes), noteCount,
-		sampleRate, minimumFrequencyHz, sequence]() mutable {
+		sampleRate, minimumFrequencyHz]() mutable {
 		if (safeThis != nullptr
-			&& safeThis->trackedNoteOverlayEnabled_.load(std::memory_order_relaxed)) {
+			&& safeThis->trackedNoteOverlayEnabled_.load(std::memory_order_relaxed)
+			&& !safeThis->horizontal_.load(std::memory_order_relaxed)) {
 			safeThis->trackedNotesOverlay_->setNotes(
-				std::move(notesToPublish), noteCount, sampleRate, minimumFrequencyHz, sequence);
+				std::move(notesToPublish), noteCount, sampleRate, minimumFrequencyHz);
 		}
 	});
 }
@@ -619,9 +717,12 @@ void SpectrogramWidget::updateTrackedNoteOverlay(const Spectrogram& analyzer)
 	const auto noteCount = spectroscope::extractTrackedPitches(
 		pitchClassDataHistory_.data() + rowOffset, analyzer.pitchClassSize(),
 		concertAHz_.load(std::memory_order_relaxed), notes.data(), maximumDisplayedNotes);
+	trackedNoteHistory_.update(notes.data(), noteCount, lastSequence_);
 
-	publishTrackedNotes(std::move(notes), noteCount, analyzer.sampleRate(),
-		analyzer.sampleRate() / static_cast<double>(analyzer.fftSize()), lastSequence_);
+	if (!horizontal_.load(std::memory_order_relaxed)) {
+		publishTrackedNotes(std::move(notes), noteCount, analyzer.sampleRate(),
+			analyzer.sampleRate() / static_cast<double>(analyzer.fftSize()));
+	}
 }
 
 void SpectrogramWidget::releaseOpenGLResources()
@@ -635,6 +736,14 @@ void SpectrogramWidget::releaseOpenGLResources()
 		context_.extensions.glDeleteBuffers(1, &elements_);
 		elements_ = 0;
 	}
+	if (noteVertexBuffer_ != 0) {
+		context_.extensions.glDeleteBuffers(1, &noteVertexBuffer_);
+		noteVertexBuffer_ = 0;
+	}
+	if (noteElements_ != 0) {
+		context_.extensions.glDeleteBuffers(1, &noteElements_);
+		noteElements_ = 0;
+	}
 
 	if (textureLUT_ != nullptr)
 		textureLUT_->release();
@@ -646,11 +755,14 @@ void SpectrogramWidget::releaseOpenGLResources()
 		pitchClassData_->release();
 	if (pitchClassHistory_ != nullptr)
 		pitchClassHistory_->release();
+	if (noteAtlasTexture_ != nullptr)
+		noteAtlasTexture_->release();
 	textureLUT_.reset();
 	spectrumData_.reset();
 	spectrumHistory_.reset();
 	pitchClassData_.reset();
 	pitchClassHistory_.reset();
+	noteAtlasTexture_.reset();
 
 	position_.reset();
 	resolution_.reset();
@@ -669,6 +781,11 @@ void SpectrogramWidget::releaseOpenGLResources()
 	uConcertAHz_.reset();
 	uMinimumFrequencyHz_.reset();
 	uSpectrumTexelWidth_.reset();
+	notePosition_.reset();
+	noteTextureCoordinate_.reset();
+	noteAtlasUniform_.reset();
+	noteShader_.reset();
+	noteOverlayReady_ = false;
 	shader_.reset();
 }
 
@@ -707,7 +824,6 @@ int SpectrogramWidget::pullAvailableFrames()
 	}
 
 	lastSequence_ = copiedSequence;
-	trackedNotesOverlay_->advanceLatestSequence(copiedSequence);
 	updateTrackedNoteOverlay(*analyzer);
 	return copiedRows;
 }
