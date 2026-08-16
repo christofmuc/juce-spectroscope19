@@ -83,7 +83,7 @@ private:
 
 Continuous redrawing follows the OpenGL swap interval and therefore the display refresh rate. The analyzer retains bounded, synchronized histories of overlapping FFT and tracked-pitch frames, and each render drains the available rows into both waterfall textures. This preserves analysis-time resolution when multiple FFT hops complete between display frames. Applications that prefer manual repaint scheduling may leave continuous redrawing disabled and call `refreshData()` from a bounded timer instead.
 
-Use `setXAxis(true)` for logarithmic frequency mapping and `setHorizontalMode(true)` for horizontal history. `setPitchColourMode(true)` keeps the physical FFT energy in greyscale and overlays circle-of-fifths colour only for temporally tracked tonal peaks. `setTrackedNoteOverlayEnabled(true)` adds frequency-aligned note, cents, and confidence diagnostics. `setPitchTrackingPreset(PitchTracker::Preset::fast)`, `balanced`, or `stable` selects a coordinated response profile; Balanced is the default. `setConcertAHz()` controls the shared pitch-analysis and display reference.
+Use `setXAxis(true)` for logarithmic frequency mapping and `setHorizontalMode(true)` for horizontal history. `setPitchColourMode(true)` keeps the physical FFT energy in greyscale and overlays circle-of-fifths colour only for temporally tracked tonal peaks. `setTrackedNoteOverlayEnabled(true)` adds frequency-aligned note, cents, and confidence diagnostics with a short release fade and confidence-ordered overlap handling. `setPitchTrackingPreset(PitchTracker::Preset::fast)`, `balanced`, or `stable` selects a coordinated response profile; Balanced is the default. `setConcertAHz()` controls the shared pitch-analysis and display reference.
 
 ## Ownership and shutdown
 

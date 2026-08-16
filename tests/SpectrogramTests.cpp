@@ -1,6 +1,7 @@
 #include "FrequencyAxis.h"
 #include "PitchTracker.h"
 #include "Spectrogram.h"
+#include "TrackedNoteDisplay.h"
 #include "TrackedPitch.h"
 #include "WaterfallTimeline.h"
 
@@ -271,6 +272,41 @@ bool testTrackedPitchMusicalValues()
 	return expect(note.midiNote == 69, "445 Hz at A4=440 should be displayed as A4")
 		&& expect(std::abs(note.cents - expectedCents) < 3.0f,
 			"tracked-note diagnostics should retain sub-semitone cents accuracy");
+}
+
+bool testTrackedNoteDisplayFadeAndPaintOrder()
+{
+	spectroscope::TrackedNoteDisplay display;
+	const std::array<spectroscope::TrackedPitch, 2> notes {
+		spectroscope::TrackedPitch { 440.0f, 0.25f, 0.0f, 69 },
+		spectroscope::TrackedPitch { 444.0f, 0.80f, 15.7f, 69 }
+	};
+	display.update(notes.data(), static_cast<int>(notes.size()), 0.0);
+
+	std::array<spectroscope::TrackedNoteDisplay::Entry,
+		spectroscope::TrackedNoteDisplay::capacity> entries {};
+	auto count = display.visibleEntries(0.0, entries.data(), static_cast<int>(entries.size()));
+	if (!expect(count == 2, "nearby tracked notes should retain separate annotations")
+		|| !expect(entries[0].note.confidence < entries[1].note.confidence,
+			"annotations should paint least confident first and most confident last")) {
+		return false;
+	}
+
+	const auto halfwayThroughFade = spectroscope::TrackedNoteDisplay::holdDurationMs
+		+ spectroscope::TrackedNoteDisplay::fadeOutDurationMs * 0.5;
+	count = display.visibleEntries(halfwayThroughFade,
+		entries.data(), static_cast<int>(entries.size()));
+	if (!expect(count == 2, "missing annotations should remain visible during fade-out")
+		|| !expect(std::abs(entries[0].opacity - 0.5f) < 0.001f,
+			"annotation opacity should follow a linear fade-out ramp")) {
+		return false;
+	}
+
+	const auto afterFade = spectroscope::TrackedNoteDisplay::holdDurationMs
+		+ spectroscope::TrackedNoteDisplay::fadeOutDurationMs + 1.0;
+	return expect(display.visibleEntries(afterFade,
+		entries.data(), static_cast<int>(entries.size())) == 0,
+		"annotations should disappear after the fade-out ramp completes");
 }
 
 bool testPitchTrackerChordAndRelease()
@@ -605,6 +641,7 @@ int main()
 	const auto passed = testPitchTrackerStablePitchAndDetuning() && testPitchTrackerDetectionLatency()
 		&& testPitchTrackerPresets()
 		&& testTrackedPitchMusicalValues()
+		&& testTrackedNoteDisplayFadeAndPaintOrder()
 		&& testPitchTrackerChordAndRelease()
 		&& testPitchTrackerHarmonicMusicalTone()
 		&& testPitchTrackerRejectsBroadbandNoise()

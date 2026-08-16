@@ -9,6 +9,7 @@
 #include "BinaryResources.h"
 #include "FrequencyAxis.h"
 #include "OpenGLHelpers.h"
+#include "TrackedNoteDisplay.h"
 #include "WaterfallTimeline.h"
 
 #include <algorithm>
@@ -32,7 +33,7 @@ void assertTextureBound(OpenGLContext& context, GLenum textureUnit, GLuint expec
 #endif
 }
 
-class SpectrogramWidget::TrackedNotesOverlay final : public Component {
+class SpectrogramWidget::TrackedNotesOverlay final : public Component, private Timer {
 public:
 	TrackedNotesOverlay()
 	{
@@ -42,10 +43,19 @@ public:
 	void setNotes(std::array<spectroscope::TrackedPitch, 6> newNotes, int newNoteCount,
 		double newSampleRate, double newMinimumFrequencyHz)
 	{
-		notes_ = std::move(newNotes);
-		noteCount_ = jlimit(0, static_cast<int>(notes_.size()), newNoteCount);
+		noteDisplay_.update(newNotes.data(),
+			jlimit(0, static_cast<int>(newNotes.size()), newNoteCount),
+			Time::getMillisecondCounterHiRes());
 		sampleRate_ = newSampleRate;
 		minimumFrequencyHz_ = newMinimumFrequencyHz;
+		startTimerHz(30);
+		repaint();
+	}
+
+	void clearNotes()
+	{
+		noteDisplay_.clear();
+		stopTimer();
 		repaint();
 	}
 
@@ -58,18 +68,23 @@ public:
 
 	void paint(Graphics& graphics) override
 	{
-		if (sampleRate_ <= 0.0 || noteCount_ <= 0)
+		if (sampleRate_ <= 0.0)
 			return;
 
-		for (int noteIndex = 0; noteIndex < noteCount_; ++noteIndex) {
-			const auto& note = notes_[static_cast<std::size_t>(noteIndex)];
+		std::array<spectroscope::TrackedNoteDisplay::Entry,
+			spectroscope::TrackedNoteDisplay::capacity> entries {};
+		const auto entryCount = noteDisplay_.visibleEntries(Time::getMillisecondCounterHiRes(),
+			entries.data(), static_cast<int>(entries.size()));
+		for (int entryIndex = 0; entryIndex < entryCount; ++entryIndex) {
+			const auto& entry = entries[static_cast<std::size_t>(entryIndex)];
+			const auto& note = entry.note;
 			const auto axisPosition = spectroscope::frequency_axis::normalisedPosition(
 				note.frequencyHz, sampleRate_, minimumFrequencyHz_, logarithmic_);
 			const auto noteColour = colourForMidiNote(note.midiNote);
 			if (horizontal_)
-				paintHorizontalAnnotation(graphics, note, axisPosition, noteColour);
+				paintHorizontalAnnotation(graphics, note, axisPosition, noteColour, entry.opacity);
 			else
-				paintVerticalAnnotation(graphics, note, axisPosition, noteColour);
+				paintVerticalAnnotation(graphics, note, axisPosition, noteColour, entry.opacity);
 		}
 	}
 
@@ -98,14 +113,14 @@ private:
 	}
 
 	static void drawCentredText(Graphics& graphics, const String& text,
-		Rectangle<float> bounds, Colour colour)
+		Rectangle<float> bounds, Colour colour, float opacity)
 	{
-		graphics.setColour(colour);
+		graphics.setColour(colour.withMultipliedAlpha(opacity));
 		graphics.drawFittedText(text, bounds.toNearestInt(), Justification::centred, 1, 0.75f);
 	}
 
 	void paintVerticalAnnotation(Graphics& graphics, const spectroscope::TrackedPitch& note,
-		float axisPosition, Colour noteColour) const
+		float axisPosition, Colour noteColour, float opacity) const
 	{
 		constexpr float annotationWidth = 48.0f;
 		constexpr float annotationHeight = 51.0f;
@@ -114,22 +129,24 @@ private:
 			static_cast<float>(getWidth()) - annotationWidth * 0.5f, anchorX);
 		auto background = Rectangle<float>(
 			centreX - annotationWidth * 0.5f, 2.0f, annotationWidth, annotationHeight);
-		graphics.setColour(Colours::black.withAlpha(0.68f));
+		graphics.setColour(Colours::black.withAlpha(0.68f * opacity));
 		graphics.fillRoundedRectangle(background, 3.0f);
-		graphics.setColour(noteColour.withAlpha(0.8f));
+		graphics.setColour(noteColour.withAlpha(0.8f * opacity));
 		graphics.drawLine(anchorX, background.getBottom(), anchorX,
 			jmin(background.getBottom() + 12.0f, static_cast<float>(getHeight())), 1.25f);
 
 		graphics.setFont(13.0f);
-		drawCentredText(graphics, noteName(note), background.removeFromTop(17.0f), noteColour);
+		drawCentredText(graphics, noteName(note), background.removeFromTop(17.0f),
+			noteColour, opacity);
 		graphics.setFont(11.0f);
-		drawCentredText(graphics, centsText(note), background.removeFromTop(17.0f), Colours::white);
+		drawCentredText(graphics, centsText(note), background.removeFromTop(17.0f),
+			Colours::white, opacity);
 		drawCentredText(graphics, confidenceText(note), background.removeFromTop(17.0f),
-			Colours::lightgrey);
+			Colours::lightgrey, opacity);
 	}
 
 	void paintHorizontalAnnotation(Graphics& graphics, const spectroscope::TrackedPitch& note,
-		float axisPosition, Colour noteColour) const
+		float axisPosition, Colour noteColour, float opacity) const
 	{
 		constexpr float annotationWidth = 126.0f;
 		constexpr float annotationHeight = 19.0f;
@@ -139,20 +156,32 @@ private:
 			static_cast<float>(getHeight()) - annotationHeight * 0.5f, anchorY);
 		auto background = Rectangle<float>(2.0f, centreY - annotationHeight * 0.5f,
 			annotationWidth, annotationHeight);
-		graphics.setColour(Colours::black.withAlpha(0.68f));
+		graphics.setColour(Colours::black.withAlpha(0.68f * opacity));
 		graphics.fillRoundedRectangle(background, 3.0f);
-		graphics.setColour(noteColour.withAlpha(0.8f));
+		graphics.setColour(noteColour.withAlpha(0.8f * opacity));
 		graphics.drawLine(background.getRight(), anchorY,
 			jmin(background.getRight() + 12.0f, static_cast<float>(getWidth())), anchorY, 1.25f);
 
 		graphics.setFont(11.0f);
-		drawCentredText(graphics, noteName(note), background.removeFromLeft(34.0f), noteColour);
-		drawCentredText(graphics, centsText(note), background.removeFromLeft(54.0f), Colours::white);
-		drawCentredText(graphics, confidenceText(note), background, Colours::lightgrey);
+		drawCentredText(graphics, noteName(note), background.removeFromLeft(34.0f),
+			noteColour, opacity);
+		drawCentredText(graphics, centsText(note), background.removeFromLeft(54.0f),
+			Colours::white, opacity);
+		drawCentredText(graphics, confidenceText(note), background, Colours::lightgrey, opacity);
 	}
 
-	std::array<spectroscope::TrackedPitch, 6> notes_ {};
-	int noteCount_ { 0 };
+	void timerCallback() override
+	{
+		std::array<spectroscope::TrackedNoteDisplay::Entry,
+			spectroscope::TrackedNoteDisplay::capacity> entries {};
+		if (noteDisplay_.visibleEntries(Time::getMillisecondCounterHiRes(),
+			entries.data(), static_cast<int>(entries.size())) == 0) {
+			stopTimer();
+		}
+		repaint();
+	}
+
+	spectroscope::TrackedNoteDisplay noteDisplay_;
 	double sampleRate_ { 0.0 };
 	double minimumFrequencyHz_ { 1.0 };
 	bool logarithmic_ { true };
@@ -458,6 +487,8 @@ void SpectrogramWidget::setTrackedNoteOverlayEnabled(bool enabled)
 {
 	trackedNoteOverlayEnabled_.store(enabled, std::memory_order_relaxed);
 	trackedNotesOverlay_->setVisible(enabled);
+	if (!enabled)
+		trackedNotesOverlay_->clearNotes();
 	refreshData();
 }
 
