@@ -147,11 +147,12 @@ private:
 class TrackedNoteHistory {
 public:
 	static constexpr int capacity = 48;
+	static constexpr float minimumArchivedConfidence = 0.15f;
 
 	struct Entry {
 		TrackedPitch note;
 		float historyPosition { 1.0f };
-		float opacity { 1.0f };
+		int slotIndex { -1 };
 	};
 
 	void update(const TrackedPitch* notes, int noteCount, std::uint64_t newestSequence) noexcept
@@ -164,13 +165,15 @@ public:
 		for (int noteIndex = 0; noteIndex < validNoteCount; ++noteIndex) {
 			const auto& note = notes[noteIndex];
 			auto slotIndex = matchingTrackingSlot(note, claimedSlots);
+			const auto continuingTrack = slotIndex >= 0;
 			if (slotIndex < 0)
 				slotIndex = reusableSlot(claimedSlots);
 			if (slotIndex < 0)
 				continue;
 
 			auto& slot = slots_[static_cast<std::size_t>(slotIndex)];
-			slot.note = note;
+			if (!continuingTrack || slot.note.confidence < note.confidence)
+				slot.note = note;
 			slot.sequence = newestSequence;
 			slot.occupied = true;
 			slot.tracking = true;
@@ -180,8 +183,12 @@ public:
 		for (int slotIndex = 0; slotIndex < capacity; ++slotIndex) {
 			auto& slot = slots_[static_cast<std::size_t>(slotIndex)];
 			if (slot.tracking && !claimedSlots[static_cast<std::size_t>(slotIndex)]) {
-				slot.tracking = false;
-				slot.sequence = newestSequence;
+				if (slot.note.confidence < minimumArchivedConfidence) {
+					slot = {};
+				} else {
+					slot.tracking = false;
+					slot.sequence = newestSequence;
+				}
 			}
 		}
 		latestUpdateSequence_ = newestSequence;
@@ -194,7 +201,8 @@ public:
 			return 0;
 
 		auto count = 0;
-		for (const auto& slot : slots_) {
+		for (int slotIndex = 0; slotIndex < capacity; ++slotIndex) {
+			const auto& slot = slots_[static_cast<std::size_t>(slotIndex)];
 			if (!slot.occupied || count >= destinationCapacity)
 				continue;
 			const auto anchorSequence = slot.tracking ? newestSequence : slot.sequence;
@@ -206,9 +214,7 @@ public:
 			const auto denominator = static_cast<float>(std::max(1, historyRowCount - 1));
 			const auto historyPosition = 1.0f
 				- static_cast<float>(ageRows) / denominator;
-			const auto opacity = 1.0f - static_cast<float>(ageRows)
-				/ static_cast<float>(historyRowCount);
-			destination[count++] = { slot.note, historyPosition, opacity };
+			destination[count++] = { slot.note, historyPosition, slotIndex };
 		}
 
 		std::sort(destination, destination + count,
@@ -217,7 +223,7 @@ public:
 					return true;
 				if (second.note.confidence < first.note.confidence)
 					return false;
-				return first.opacity < second.opacity;
+				return first.historyPosition < second.historyPosition;
 			});
 		return count;
 	}

@@ -331,7 +331,9 @@ bool testTrackedNoteHorizontalHistory()
 		return false;
 	}
 
-	history.update(&notes[1], 1, 110);
+	auto degradedStrongNote = notes[1];
+	degradedStrongNote.confidence = 0.20f;
+	history.update(&degradedStrongNote, 1, 110);
 	count = history.visibleEntries(120, 512,
 		entries.data(), static_cast<int>(entries.size()));
 	const auto expectedReleasedPosition = 1.0f - 10.0f / 511.0f;
@@ -339,7 +341,9 @@ bool testTrackedNoteHorizontalHistory()
 		|| !expect(approximatelyEqual(entries[0].historyPosition, expectedReleasedPosition),
 			"a released annotation should move left by the same number of waterfall rows")
 		|| !expect(approximatelyEqual(entries[1].historyPosition, 1.0f),
-			"a continuing note should remain at the newest frame")) {
+			"a continuing note should remain at the newest frame")
+		|| !expect(approximatelyEqual(entries[1].note.confidence, 0.80f),
+			"horizontal history should retain a segment's strongest observation")) {
 		return false;
 	}
 
@@ -351,9 +355,20 @@ bool testTrackedNoteHorizontalHistory()
 		return false;
 	}
 
-	return expect(history.visibleEntries(642, 512,
+	if (!expect(history.visibleEntries(642, 512,
 		entries.data(), static_cast<int>(entries.size())) == 0,
-		"horizontal annotations should leave the screen with their waterfall rows");
+		"horizontal annotations should leave the screen with their waterfall rows")) {
+		return false;
+	}
+
+	spectroscope::TrackedNoteHistory weakHistory;
+	auto weakGuess = notes[0];
+	weakGuess.confidence = 0.10f;
+	weakHistory.update(&weakGuess, 1, 1);
+	weakHistory.update(nullptr, 0, 2);
+	return expect(weakHistory.visibleEntries(2, 512,
+		entries.data(), static_cast<int>(entries.size())) == 0,
+		"horizontal history should not archive guesses below 15 percent confidence");
 }
 
 bool testPitchTrackerChordAndRelease()

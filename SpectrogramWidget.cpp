@@ -49,7 +49,7 @@ public:
 		noteHistory_.update(newNotes.data(), validNoteCount, sequence);
 		sampleRate_ = newSampleRate;
 		minimumFrequencyHz_ = newMinimumFrequencyHz;
-		startTimerHz(30);
+		startAnimationTimer();
 		repaint();
 	}
 
@@ -66,7 +66,7 @@ public:
 	{
 		logarithmic_ = logarithmic;
 		horizontal_ = horizontal;
-		startTimerHz(30);
+		startAnimationTimer();
 		repaint();
 	}
 
@@ -99,6 +99,17 @@ public:
 	}
 
 private:
+	struct CachedHorizontalLabel {
+		String text;
+		int midiNote { -1 };
+		Image image;
+	};
+
+	void startAnimationTimer()
+	{
+		startTimerHz(horizontal_ ? 60 : 30);
+	}
+
 	static Colour colourForMidiNote(int midiNote)
 	{
 		const auto pitchClass = ((midiNote % 12) + 12) % 12;
@@ -155,7 +166,7 @@ private:
 			Colours::lightgrey, opacity);
 	}
 
-	void paintHorizontalHistory(Graphics& graphics) const
+	void paintHorizontalHistory(Graphics& graphics)
 	{
 		std::array<spectroscope::TrackedNoteHistory::Entry,
 			spectroscope::TrackedNoteHistory::capacity> entries {};
@@ -166,38 +177,50 @@ private:
 			const auto& entry = entries[static_cast<std::size_t>(entryIndex)];
 			const auto frequencyPosition = spectroscope::frequency_axis::normalisedPosition(
 				entry.note.frequencyHz, sampleRate_, minimumFrequencyHz_, logarithmic_);
-			paintHorizontalAnnotation(graphics, entry.note, frequencyPosition,
-				entry.historyPosition, colourForMidiNote(entry.note.midiNote), entry.opacity);
+			paintHorizontalAnnotation(graphics, entry, frequencyPosition);
 		}
 	}
 
-	void paintHorizontalAnnotation(Graphics& graphics, const spectroscope::TrackedPitch& note,
-		float frequencyPosition, float historyPosition, Colour noteColour, float opacity) const
+	const Image& horizontalLabelImage(const spectroscope::TrackedNoteHistory::Entry& entry)
 	{
-		constexpr float annotationWidth = 126.0f;
-		constexpr float annotationHeight = 19.0f;
+		constexpr int annotationWidth = 36;
+		constexpr int annotationHeight = 17;
+		auto& cachedLabel = horizontalLabelCache_[static_cast<std::size_t>(entry.slotIndex)];
+		const auto text = noteName(entry.note);
+		if (!cachedLabel.image.isValid() || cachedLabel.text != text
+			|| cachedLabel.midiNote != entry.note.midiNote) {
+			cachedLabel.text = text;
+			cachedLabel.midiNote = entry.note.midiNote;
+			cachedLabel.image = Image(Image::ARGB, annotationWidth, annotationHeight, true);
+			Graphics labelGraphics(cachedLabel.image);
+			const auto bounds = cachedLabel.image.getBounds().toFloat();
+			labelGraphics.setColour(Colours::black.withAlpha(0.72f));
+			labelGraphics.fillRoundedRectangle(bounds, 3.0f);
+			labelGraphics.setFont(11.0f);
+			drawCentredText(labelGraphics, text, bounds,
+				colourForMidiNote(entry.note.midiNote), 1.0f);
+		}
+		return cachedLabel.image;
+	}
+
+	void paintHorizontalAnnotation(Graphics& graphics,
+		const spectroscope::TrackedNoteHistory::Entry& entry, float frequencyPosition)
+	{
+		const auto& labelImage = horizontalLabelImage(entry);
+		const auto annotationWidth = static_cast<float>(labelImage.getWidth());
+		const auto annotationHeight = static_cast<float>(labelImage.getHeight());
 		const auto screenPosition = spectroscope::frequency_axis::horizontalScreenPosition(
 			frequencyPosition);
 		const auto anchorY = screenPosition * static_cast<float>(getHeight());
-		const auto anchorX = historyPosition * static_cast<float>(getWidth());
+		const auto anchorX = entry.historyPosition * static_cast<float>(getWidth());
 		const auto centreY = jlimit(annotationHeight * 0.5f,
 			static_cast<float>(getHeight()) - annotationHeight * 0.5f, anchorY);
-		auto background = Rectangle<float>(anchorX - annotationWidth,
-			centreY - annotationHeight * 0.5f,
-			annotationWidth, annotationHeight);
-		graphics.setColour(Colours::black.withAlpha(0.68f * opacity));
-		graphics.fillRoundedRectangle(background, 3.0f);
-		graphics.setColour(noteColour.withAlpha(0.8f * opacity));
+		graphics.drawImageAt(labelImage, roundToInt(anchorX - annotationWidth),
+			roundToInt(centreY - annotationHeight * 0.5f));
+		graphics.setColour(colourForMidiNote(entry.note.midiNote).withAlpha(0.8f));
 		const auto markerX = jlimit(0.0f, static_cast<float>(getWidth() - 1), anchorX);
 		graphics.drawLine(markerX, centreY - annotationHeight * 0.5f,
 			markerX, centreY + annotationHeight * 0.5f, 1.25f);
-
-		graphics.setFont(11.0f);
-		drawCentredText(graphics, noteName(note), background.removeFromLeft(34.0f),
-			noteColour, opacity);
-		drawCentredText(graphics, centsText(note), background.removeFromLeft(54.0f),
-			Colours::white, opacity);
-		drawCentredText(graphics, confidenceText(note), background, Colours::lightgrey, opacity);
 	}
 
 	void timerCallback() override
@@ -222,6 +245,8 @@ private:
 
 	spectroscope::TrackedNoteDisplay noteDisplay_;
 	spectroscope::TrackedNoteHistory noteHistory_;
+	std::array<CachedHorizontalLabel, spectroscope::TrackedNoteHistory::capacity>
+		horizontalLabelCache_ {};
 	std::atomic<std::uint64_t> latestSequence_ { 0 };
 	double sampleRate_ { 0.0 };
 	double minimumFrequencyHz_ { 1.0 };
