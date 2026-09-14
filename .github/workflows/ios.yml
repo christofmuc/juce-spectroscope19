@@ -1,0 +1,83 @@
+name: iOS standalone demo
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.sdk }} (arm64)
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [iphoneos, iphonesimulator]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show Apple toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          cmake --version
+
+      - name: Install shader validator
+        run: brew install glslang
+
+      - name: Configure unsigned iOS app
+        run: |
+          set -o pipefail
+          cmake -S . -B build-ios -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=${{ matrix.sdk }} \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DJUCE_SPECTROSCOPE_BUILD_DEMO=ON \
+            -DJUCE_SPECTROSCOPE_BUILD_TESTS=OFF \
+            -DBUILD_TESTING=OFF \
+            -DJUCE_SPECTROSCOPE_VALIDATE_SHADERS=ON \
+            2>&1 | tee configure-ios.log
+
+      - name: Compile app and validate GLSL ES shaders
+        run: |
+          set -o pipefail
+          cmake --build build-ios --config Release --parallel 3 \
+            --target JuceSpectroscopeDemo 2>&1 | tee build-ios.log
+
+      - name: Check and package app
+        run: |
+          app="build-ios/examples/standalone/JuceSpectroscopeDemo_artefacts/Release/JUCE Spectroscope Demo.app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
+          test "$(lipo -archs "$app/$executable")" = arm64
+          /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$app/Info.plist"
+          xcrun vtool -show-build "$app/$executable"
+          ditto -c -k --keepParent "$app" "Spectroscope-${{ matrix.sdk }}-unsigned.zip"
+
+      - name: Upload unsigned app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spectroscope-${{ matrix.sdk }}-unsigned
+          path: Spectroscope-${{ matrix.sdk }}-unsigned.zip
+          if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spectroscope-${{ matrix.sdk }}-logs
+          path: |
+            configure-ios.log
+            build-ios.log
+            build-ios/CMakeFiles/CMakeConfigureLog.yaml
+            build-ios/generated/shaders/
+          if-no-files-found: warn

@@ -49,6 +49,7 @@ public:
 	void paint(juce::Graphics& graphics) override;
 	void resized() override;
 	bool isRendererReady() const noexcept;
+	void setSuspended(bool suspended);
 
 private:
 	void initialiseAudio();
@@ -77,6 +78,7 @@ private:
 	juce::Slider concertASlider_;
 	juce::Label statusLabel_;
 	bool audioCallbackRegistered_ { false };
+	bool suspended_ { false };
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

@@ -94,12 +94,24 @@ set(SHADER_FILES
 set(GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(GENERATED_RESOURCES "${GENERATED_DIRECTORY}/BinaryResources.h")
 file(MAKE_DIRECTORY "${GENERATED_DIRECTORY}")
+set(SHADER_PROFILE desktop150)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+	set(SHADER_PROFILE gles300)
+endif()
+set(PREPARED_SHADERS)
+foreach(SHADER IN LISTS SHADER_FILES)
+	get_filename_component(SHADER_NAME "${SHADER}" NAME)
+	list(APPEND PREPARED_SHADERS "${GENERATED_DIRECTORY}/shaders/${SHADER_NAME}")
+endforeach()
 
 add_custom_command(
 	OUTPUT "${GENERATED_RESOURCES}"
+	BYPRODUCTS ${PREPARED_SHADERS}
 	COMMAND "${CMAKE_COMMAND}"
 		"-DOUTPUT_FILE=${GENERATED_RESOURCES}"
 		"-DINPUT_FILES=${SHADER_FILES}"
+		"-DSHADER_PROFILE=${SHADER_PROFILE}"
+		"-DSHADER_OUTPUT_DIRECTORY=${GENERATED_DIRECTORY}/shaders"
 		-P "${CMAKE_CURRENT_LIST_DIR}/createResources.cmake"
 	DEPENDS ${SHADER_FILES} "${CMAKE_CURRENT_LIST_DIR}/createResources.cmake"
 	COMMENT "Embedding juce-spectroscope19 shaders"
@@ -146,8 +158,8 @@ target_link_libraries(juce-spectroscope19 INTERFACE juce-spectroscope-analysis j
 
 if(JUCE_SPECTROSCOPE_VALIDATE_SHADERS)
 	find_program(GLSLANG_VALIDATOR NAMES glslangValidator REQUIRED)
-	add_custom_target(juce-spectroscope-validate-shaders)
-	foreach(SHADER IN LISTS SHADER_FILES)
+	add_custom_target(juce-spectroscope-validate-shaders DEPENDS "${GENERATED_RESOURCES}")
+	foreach(SHADER IN LISTS PREPARED_SHADERS)
 		add_custom_command(TARGET juce-spectroscope-validate-shaders
 			COMMAND "${GLSLANG_VALIDATOR}" "${SHADER}"
 			COMMENT "Validating ${SHADER}"

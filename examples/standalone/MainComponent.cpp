@@ -205,7 +205,29 @@ void MainComponent::paint(juce::Graphics& graphics)
 
 void MainComponent::resized()
 {
-	auto area = getLocalBounds().reduced(10);
+	auto area = getLocalBounds();
+#if JUCE_IOS
+	if (const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds()))
+		area = display->safeAreaInsets.subtractedFrom(area);
+#endif
+	area.reduce(10, 10);
+#if JUCE_IOS
+	std::array<juce::Component*, 6> buttons { &deviceButton_, &logarithmicButton_,
+		&horizontalButton_, &pitchColourButton_, &trackedNotesButton_, &trackingPresetBox_ };
+	const auto columns = juce::jlimit(2, 6, area.getWidth() / 150);
+	const auto rows = (static_cast<int>(buttons.size()) + columns - 1) / columns;
+	auto controls = area.removeFromBottom(rows * 40 + 72);
+	for (int row = 0, index = 0; row < rows; ++row) {
+		auto buttonRow = controls.removeFromTop(40);
+		const auto width = buttonRow.getWidth() / columns;
+		for (int column = 0; column < columns && index < static_cast<int>(buttons.size()); ++column)
+			buttons[static_cast<std::size_t>(index++)]->setBounds(buttonRow.removeFromLeft(width).reduced(2));
+	}
+	auto tuningRow = controls.removeFromTop(44);
+	concertALabel_.setBounds(tuningRow.removeFromLeft(95));
+	concertASlider_.setBounds(tuningRow);
+	statusLabel_.setBounds(controls);
+#else
 	auto controls = area.removeFromBottom(72);
 	auto firstRow = controls.removeFromTop(32);
 	auto secondRow = controls.removeFromBottom(32);
@@ -218,6 +240,7 @@ void MainComponent::resized()
 	concertALabel_.setBounds(secondRow.removeFromLeft(100));
 	concertASlider_.setBounds(secondRow.removeFromLeft(220));
 	statusLabel_.setBounds(secondRow);
+#endif
 
 	area.removeFromBottom(8);
 	deviceSelector_.setBounds(area);
@@ -229,9 +252,21 @@ bool MainComponent::isRendererReady() const noexcept
 	return spectrogram_.isOpenGLReady();
 }
 
+void MainComponent::setSuspended(bool suspended)
+{
+	suspended_ = suspended;
+	spectrogram_.setContinuousRedrawing(!suspended);
+	if (audioCallbackRegistered_) {
+		if (suspended)
+			deviceManager_.closeAudioDevice();
+		else
+			deviceManager_.restartLastAudioDevice();
+	}
+}
+
 void MainComponent::initialiseAudio()
 {
-	const auto error = deviceManager_.initialiseWithDefaultDevices(2, 0);
+	const auto error = deviceManager_.initialiseWithDefaultDevices(JUCE_IOS ? 1 : 2, 0);
 	if (error.isNotEmpty()) {
 		statusLabel_.setText(error, juce::dontSendNotification);
 		return;
@@ -239,6 +274,8 @@ void MainComponent::initialiseAudio()
 
 	deviceManager_.addAudioCallback(this);
 	audioCallbackRegistered_ = true;
+	if (suspended_)
+		deviceManager_.closeAudioDevice();
 	statusLabel_.setText("Listening to the default audio input", juce::dontSendNotification);
 }
 

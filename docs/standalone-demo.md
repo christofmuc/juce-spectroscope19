@@ -45,6 +45,64 @@ ctest --test-dir build --output-on-failure
 
 The generated app bundle includes a microphone usage description. macOS will request permission when the demo first opens an input device.
 
+## iPhone and iPad (experimental)
+
+Build the standalone repository on a Mac with full Xcode installed (command-line
+tools alone do not include the iOS SDK). The same C++ analysis and JUCE UI are
+used on iOS. Configure from this repository's root, not the JammerNetz root:
+
+```sh
+cmake -S . -B build-ios -G Xcode \
+  -DCMAKE_SYSTEM_NAME=iOS \
+  -DCMAKE_OSX_SYSROOT=iphoneos \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+  -DJUCE_SPECTROSCOPE_BUILD_TESTS=OFF \
+  -DBUILD_TESTING=OFF \
+  -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM=YOUR_TEAM_ID
+open build-ios/juce-spectroscope19.xcodeproj
+```
+
+In Xcode, select the `JuceSpectroscopeDemo` scheme, choose your signing team and
+enable automatic signing, then select your connected iPhone and Run. Enable
+Developer Mode on the phone if Xcode requests it, and allow microphone access.
+Keep team identifiers and signing credentials in your local build configuration.
+If Xcode reports that the bundle identifier is unavailable, choose a unique one
+locally. A free Personal Team can test on a device but requires periodic
+reprovisioning.
+
+For an unsigned compile check, replace the team argument with
+`-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO` and run:
+
+```sh
+cmake --build build-ios --config Release --parallel --target JuceSpectroscopeDemo
+```
+
+For an Apple Silicon simulator build, use a separate `build-ios-simulator`
+directory and `-DCMAKE_OSX_SYSROOT=iphonesimulator`. Device and simulator binaries
+are different even when both have the arm64 architecture.
+
+The `iOS standalone demo` GitHub Actions workflow compiles both SDK variants,
+validates the exact generated GLSL ES shaders embedded in the app, and uploads
+zipped unsigned `.app` bundles and diagnostics. The iPhone artifact is a compile
+check, not an installable signed IPA; build and sign locally for your phone. The
+simulator artifact can be extracted and installed on a booted Apple Silicon iOS
+simulator using `xcrun simctl install booted "JUCE Spectroscope Demo.app"`.
+CI does not yet launch the app or verify live audio or rendered pixels.
+
+The iOS renderer requests OpenGL ES 3.0 and generates GLSL ES 3.00 shaders from
+the shared desktop shader sources. Single-channel half-float textures preserve
+linear filtering without requiring the optional full-float filtering extension.
+OpenGL ES is deprecated by Apple, so this is an experimental reuse of the
+existing renderer, not a Metal backend. The demo uses a fullscreen layout with
+safe-area insets and wrapping controls, requests a mono microphone input, and
+stops capture and continuous repainting while suspended.
+
+Before relying on the port, test microphone permission denial, portrait and
+landscape layouts, pitch colours and note labels, locking/unlocking the phone,
+audio interruptions and route changes, and sustained CPU/battery usage on a
+physical device. Desktop analyzer tests remain in the existing build workflow.
+
 ## Ubuntu Linux
 
 Install the compiler, Ninja, ALSA, X11, font, and OpenGL development packages used by JUCE:

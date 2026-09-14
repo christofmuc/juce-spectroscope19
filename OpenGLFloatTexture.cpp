@@ -8,6 +8,15 @@
 #include "OpenGLFloatTexture.h"
 #include "OpenGLHelpers.h"
 
+namespace {
+// ES 3.0 guarantees linear filtering for R16F, but not R32F. Uploads can
+// remain GL_FLOAT; the driver converts to half precision for storage.
+#if JUCE_IOS
+constexpr auto dataTextureFormat = juce::gl::GL_R16F;
+#else
+constexpr auto dataTextureFormat = juce::gl::GL_R32F;
+#endif
+}
 
 OpenGLFloatTexture::OpenGLFloatTexture()
 	: textureID_(0), width_(0), height_(0), context_(nullptr)
@@ -56,8 +65,7 @@ void OpenGLFloatTexture::create(const int w, const int h, const GLfloat * pixels
 		juce::gl::glBindTexture(juce::gl::GL_TEXTURE_2D, textureID_);
 		juce::gl::glTexParameteri(juce::gl::GL_TEXTURE_2D, juce::gl::GL_TEXTURE_MIN_FILTER, juce::gl::GL_LINEAR);
 		juce::gl::glTexParameteri(juce::gl::GL_TEXTURE_2D, juce::gl::GL_TEXTURE_MAG_FILTER, juce::gl::GL_LINEAR);
-		GLint swizzleMask[] = { juce::gl::GL_RED, juce::gl::GL_RED, juce::gl::GL_RED, juce::gl::GL_RED };
-		juce::gl::glTexParameteriv(juce::gl::GL_TEXTURE_2D, juce::gl::GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+		// Every data sampler reads .r; no desktop-only RGBA swizzle is needed.
 		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
 		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 		// Frequency must not wrap between Nyquist and DC. Only the time/history
@@ -80,12 +88,12 @@ void OpenGLFloatTexture::create(const int w, const int h, const GLfloat * pixels
 
 	if (width_ != w || height_ != h)
 	{
-		juce::gl::glTexImage2D(juce::gl::GL_TEXTURE_2D, 0, juce::gl::GL_R32F, width_, height_, 0, juce::gl::GL_RED, juce::gl::GL_FLOAT, nullptr);
+		juce::gl::glTexImage2D(juce::gl::GL_TEXTURE_2D, 0, dataTextureFormat, width_, height_, 0, juce::gl::GL_RED, juce::gl::GL_FLOAT, nullptr);
 		juce::gl::glTexSubImage2D(juce::gl::GL_TEXTURE_2D, 0, 0, 0, w, h, juce::gl::GL_RED, juce::gl::GL_FLOAT, pixels);
 	}
 	else
 	{
-		juce::gl::glTexImage2D(juce::gl::GL_TEXTURE_2D, 0, juce::gl::GL_R32F, w, h, 0, juce::gl::GL_RED, juce::gl::GL_FLOAT, pixels);
+		juce::gl::glTexImage2D(juce::gl::GL_TEXTURE_2D, 0, dataTextureFormat, w, h, 0, juce::gl::GL_RED, juce::gl::GL_FLOAT, pixels);
 	}
 
 	JUCE_CHECK_OPENGL_ERROR

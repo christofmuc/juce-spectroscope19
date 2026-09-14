@@ -34,6 +34,11 @@ ctest --test-dir build --output-on-failure
 
 Windows with a Visual Studio generator is multi-config, so pass `--config RelWithDebInfo` to the build and `-C RelWithDebInfo` to CTest. See [Building and using the standalone demo](docs/standalone-demo.md) for complete Windows, macOS, and Linux instructions.
 
+An experimental iPhone/iPad port uses the same C++ analyzer and JUCE UI.
+See [iOS builds and device setup](docs/standalone-demo.md#iphone-and-ipad-experimental).
+The separate `iOS standalone demo` workflow builds unsigned device and simulator
+apps; signing and physical-device checks happen on a Mac.
+
 ## Embedding the component
 
 A parent project may provide its own `juce-static` target or JUCE CMake targets. In that mode this repository never downloads or compiles a second JUCE checkout:

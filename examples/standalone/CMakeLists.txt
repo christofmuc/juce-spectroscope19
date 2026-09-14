@@ -4,6 +4,7 @@ juce_add_gui_app(JuceSpectroscopeDemo
 	BUNDLE_ID "de.christofruch.juce-spectroscope-demo"
 	MICROPHONE_PERMISSION_ENABLED TRUE
 	MICROPHONE_PERMISSION_TEXT "The spectroscope displays the spectrum of the selected audio input."
+	TARGETED_DEVICE_FAMILY "1,2"
 )
 
 target_sources(JuceSpectroscopeDemo PRIVATE

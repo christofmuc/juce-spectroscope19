@@ -34,6 +34,16 @@ public:
 	}
 
 	void anotherInstanceStarted(const juce::String&) override {}
+	void suspended() override
+	{
+		if (mainWindow_ != nullptr)
+			mainWindow_->setSuspended(true);
+	}
+	void resumed() override
+	{
+		if (mainWindow_ != nullptr)
+			mainWindow_->setSuspended(false);
+	}
 
 private:
 	void timerCallback() override
@@ -55,8 +65,12 @@ private:
 			setUsingNativeTitleBar(true);
 			mainComponent_ = new MainComponent(startAudio);
 			setContentOwned(mainComponent_, true);
+#if JUCE_IOS
+			setFullScreen(true);
+#else
 			setResizable(true, true);
 			centreWithSize(900, 650);
+#endif
 			setVisible(true);
 		}
 
@@ -68,6 +82,11 @@ private:
 		bool isRendererReady() const noexcept
 		{
 			return mainComponent_ != nullptr && mainComponent_->isRendererReady();
+		}
+		void setSuspended(bool suspended)
+		{
+			if (mainComponent_ != nullptr)
+				mainComponent_->setSuspended(suspended);
 		}
 
 	private:

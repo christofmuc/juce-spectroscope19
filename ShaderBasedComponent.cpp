@@ -9,7 +9,12 @@
 ShaderBasedComponent::ShaderBasedComponent()
 {
 #if JUCE_MAJOR_VERSION >= 9
+#if JUCE_IOS
+	context_.setPreferredAPI(juce::OpenGLContext::API::openGLES);
+	context_.setPreferredVersion({ 3, 0 });
+#else
 	context_.setPreferredVersion({ 3, 2 });
+#endif
 #else
 	context_.setOpenGLVersionRequired(juce::OpenGLContext::openGL3_2);
 #endif
