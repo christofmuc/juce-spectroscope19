@@ -5,6 +5,9 @@ juce_add_gui_app(JuceSpectroscopeDemo
 	MICROPHONE_PERMISSION_ENABLED TRUE
 	MICROPHONE_PERMISSION_TEXT "The spectroscope displays the spectrum of the selected audio input."
 	TARGETED_DEVICE_FAMILY "1,2"
+	IPAD_SCREEN_ORIENTATIONS
+		UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+		UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
 )
 
 target_sources(JuceSpectroscopeDemo PRIVATE
