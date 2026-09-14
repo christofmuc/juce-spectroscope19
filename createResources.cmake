@@ -18,8 +18,9 @@ foreach(INPUT_FILE IN LISTS INPUT_FILES)
 	if(DEFINED SHADER_OUTPUT_DIRECTORY)
 		file(READ "${INPUT_FILE}" SHADER_TEXT)
 		if(SHADER_PROFILE STREQUAL "gles300")
-			string(REPLACE "#version 150" "#version 300 es\nprecision highp float;\nprecision highp int;"
-				SHADER_TEXT "${SHADER_TEXT}")
+			# ES requires the version directive before even the copyright comment.
+			string(REPLACE "#version 150" "" SHADER_TEXT "${SHADER_TEXT}")
+			string(PREPEND SHADER_TEXT "#version 300 es\nprecision highp float;\nprecision highp int;\n")
 		endif()
 		file(MAKE_DIRECTORY "${SHADER_OUTPUT_DIRECTORY}")
 		set(PREPARED_SHADER "${SHADER_OUTPUT_DIRECTORY}/${FILENAME}")
