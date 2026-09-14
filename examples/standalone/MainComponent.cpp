@@ -266,7 +266,12 @@ void MainComponent::setSuspended(bool suspended)
 
 void MainComponent::initialiseAudio()
 {
-	const auto error = deviceManager_.initialiseWithDefaultDevices(JUCE_IOS ? 1 : 2, 0);
+#if JUCE_IOS
+	constexpr int inputChannels = 1;
+#else
+	constexpr int inputChannels = 2;
+#endif
+	const auto error = deviceManager_.initialiseWithDefaultDevices(inputChannels, 0);
 	if (error.isNotEmpty()) {
 		statusLabel_.setText(error, juce::dontSendNotification);
 		return;

@@ -20,7 +20,8 @@ foreach(INPUT_FILE IN LISTS INPUT_FILES)
 		if(SHADER_PROFILE STREQUAL "gles300")
 			# ES requires the version directive before even the copyright comment.
 			string(REPLACE "#version 150" "" SHADER_TEXT "${SHADER_TEXT}")
-			string(PREPEND SHADER_TEXT "#version 300 es\nprecision highp float;\nprecision highp int;\n")
+			# Texture samples contain signed dB values, outside lowp's required range.
+			string(PREPEND SHADER_TEXT "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n")
 		endif()
 		file(MAKE_DIRECTORY "${SHADER_OUTPUT_DIRECTORY}")
 		set(PREPARED_SHADER "${SHADER_OUTPUT_DIRECTORY}/${FILENAME}")

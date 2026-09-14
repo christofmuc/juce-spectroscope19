@@ -127,7 +127,7 @@ void main()
 		float amplitudeNormalised = clamp(1.0 + amplitude / 100.0, 0.0, 1.0);
 		if (y > upperHalfPercentage) {
 			// upper half of screen shows curve
-			if ((y-upperHalfPercentage)/(1-upperHalfPercentage) < amplitudeNormalised)  {
+			if ((y - upperHalfPercentage) / (1.0 - upperHalfPercentage) < amplitudeNormalised) {
 				float pitchConfidence = trackedPitchConfidence(pitchClassData, x, 0.0);
 				fragmentColour = spectrumColour(
 					amplitude, x, spectralSalience(audioSampleData, spectrumPosition), pitchConfidence);
